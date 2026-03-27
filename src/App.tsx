@@ -1,0 +1,625 @@
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
+import { PUZZLE, SyllableDef, PuzzleDef } from './data';
+import { DroppableBank } from './components/DroppableBank';
+import { DroppableSlot } from './components/DroppableSlot';
+import { DraggableSyllable } from './components/DraggableSyllable';
+import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText } from 'lucide-react';
+import { cn } from './lib/utils';
+import { PuzzleBuilder } from './components/PuzzleBuilder';
+import { SettingsModal } from './components/SettingsModal';
+import { StatsModal } from './components/StatsModal';
+import { GuessModal } from './components/GuessModal';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { generatePuzzle } from './lib/puzzleGenerator';
+
+function shuffle<T>(array: T[]): T[] {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+}
+
+export default function App() {
+  const [settings, setSettings] = useLocalStorage('syllacrostic-settings', { theme: 'theme-blue', difficulty: 'Medium' });
+  const [stats, setStats] = useLocalStorage('syllacrostic-stats', {
+    played: 0,
+    won: 0,
+    currentStreak: 0,
+    maxStreak: 0,
+    bestTime: null as number | null,
+    lastPlayedDate: null as string | null,
+  });
+
+  const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
+  const [mode, setMode] = useState<'play' | 'build'>('play');
+  const [isDaily, setIsDaily] = useLocalStorage('syllacrostic-is-daily', false);
+
+  const [locations, setLocations] = useLocalStorage<Record<string, string>>('syllacrostic-locations', {});
+  const [hintsUsed, setHintsUsed] = useLocalStorage('syllacrostic-hints', 0);
+  const [isWon, setIsWon] = useLocalStorage('syllacrostic-won', false);
+  const [isMessageGuessed, setIsMessageGuessed] = useLocalStorage('syllacrostic-message-guessed', false);
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [showGuessModal, setShowGuessModal] = useState(false);
+  const [guessError, setGuessError] = useState('');
+
+  const [timeElapsed, setTimeElapsed] = useLocalStorage('syllacrostic-time', 0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [isGeneratingDaily, setIsGeneratingDaily] = useState(false);
+
+  // Apply theme
+  useEffect(() => {
+    document.documentElement.className = settings.theme;
+  }, [settings.theme]);
+
+  // Timer logic
+  useEffect(() => {
+    let interval: number;
+    if (isTimerRunning && !isWon) {
+      interval = window.setInterval(() => {
+        setTimeElapsed(prev => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning, isWon]);
+
+  const formatTime = (s: number) => {
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  };
+
+  // Flatten all syllables from the puzzle
+  const allSyllables = useMemo(() => {
+    const syllables: SyllableDef[] = [];
+    activePuzzle.clues.forEach(clue => {
+      syllables.push(...clue.syllables);
+    });
+    return shuffle(syllables);
+  }, [activePuzzle]);
+
+  // Initialize locations to 'bank' when puzzle changes
+  useEffect(() => {
+    // Check if the current locations match the current puzzle's syllables
+    const currentSyllableIds = allSyllables.map(s => s.id);
+    const locationSyllableIds = Object.keys(locations);
+    
+    // If locations is empty or has different syllables, reset it
+    const needsReset = locationSyllableIds.length === 0 || 
+      locationSyllableIds.length !== currentSyllableIds.length ||
+      !currentSyllableIds.every(id => locationSyllableIds.includes(id));
+
+    if (needsReset) {
+      const initialLocations: Record<string, string> = {};
+      allSyllables.forEach(s => {
+        initialLocations[s.id] = 'bank';
+      });
+      setLocations(initialLocations);
+      setHintsUsed(0);
+      setIsWon(false);
+      setTimeElapsed(0);
+      setIsMessageGuessed(false);
+    }
+    setIsTimerRunning(!isWon);
+  }, [allSyllables, activePuzzle.id]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 100,
+        tolerance: 5,
+      },
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const syllableId = active.id as string;
+    const targetLocation = over.id as string;
+
+    setLocations(prev => {
+      const newLocations = { ...prev };
+      
+      // If moving to a slot, check if it's occupied
+      if (targetLocation.startsWith('slot_')) {
+        const occupantId = Object.keys(newLocations).find(id => newLocations[id] === targetLocation);
+        
+        if (occupantId && occupantId !== syllableId) {
+          // Swap: move occupant to the dragged syllable's old location
+          newLocations[occupantId] = prev[syllableId];
+        }
+      }
+      
+      newLocations[syllableId] = targetLocation;
+      return newLocations;
+    });
+  };
+
+  const useHint = () => {
+    for (const clue of activePuzzle.clues) {
+      for (let i = 0; i < clue.syllables.length; i++) {
+        const slotId = `slot_${clue.id}_${i}`;
+        const expectedText = clue.syllables[i].text;
+        
+        const occupantId = Object.keys(locations).find(id => locations[id] === slotId);
+        const occupantText = occupantId ? allSyllables.find(s => s.id === occupantId)?.text : null;
+        
+        if (occupantText !== expectedText) {
+          // Find a syllable with expectedText that is NOT currently in a correct slot
+          const candidateIds = allSyllables.filter(s => s.text === expectedText).map(s => s.id);
+          
+          let syllableToMove = null;
+          for (const cid of candidateIds) {
+            const loc = locations[cid];
+            if (loc === 'bank') {
+              syllableToMove = cid;
+              break;
+            }
+            if (loc.startsWith('slot_')) {
+              const [_, clueIdStr, slotIdxStr] = loc.split('_');
+              const cId = parseInt(clueIdStr);
+              const sIdx = parseInt(slotIdxStr);
+              const c = activePuzzle.clues.find(c => c.id === cId);
+              if (c && c.syllables[sIdx].text !== expectedText) {
+                syllableToMove = cid;
+                break;
+              }
+            }
+          }
+          
+          if (syllableToMove) {
+            setLocations(prev => {
+              const newLocs = { ...prev };
+              if (occupantId) {
+                newLocs[occupantId] = 'bank';
+              }
+              newLocs[syllableToMove] = slotId;
+              return newLocs;
+            });
+            setHintsUsed(h => h + 1);
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  const resetPuzzle = useCallback(() => {
+    const initialLocations: Record<string, string> = {};
+    allSyllables.forEach(s => {
+      initialLocations[s.id] = 'bank';
+    });
+    setLocations(initialLocations);
+    setHintsUsed(0);
+    setIsWon(false);
+    setTimeElapsed(0);
+    setIsTimerRunning(true);
+    setIsMessageGuessed(false);
+  }, [allSyllables, setLocations, setHintsUsed, setIsWon, setTimeElapsed, setIsMessageGuessed]);
+
+  // Calculate score and check win condition
+  let correctSyllablesCount = 0;
+  let correctCluesCount = 0;
+  let isHiddenMessageCorrect = true;
+
+  activePuzzle.clues.forEach(clue => {
+    let isClueCorrect = true;
+    clue.syllables.forEach((expectedSyllable, i) => {
+      const slotId = `slot_${clue.id}_${i}`;
+      const occupantId = Object.keys(locations).find(id => locations[id] === slotId);
+      const occupantText = occupantId ? allSyllables.find(s => s.id === occupantId)?.text : null;
+      
+      if (occupantText === expectedSyllable.text) {
+        correctSyllablesCount++;
+      } else {
+        isClueCorrect = false;
+        if (expectedSyllable.messageIndex) {
+          isHiddenMessageCorrect = false;
+        }
+      }
+    });
+    if (isClueCorrect) {
+      correctCluesCount++;
+    }
+  });
+
+  const allCluesCorrect = correctCluesCount === activePuzzle.clues.length;
+  
+  let currentScore = (correctSyllablesCount * 10) + (correctCluesCount * 25) + (allCluesCorrect ? 100 : 0) - (hintsUsed * 15);
+  if (isMessageGuessed) {
+     const remainingSyllables = allSyllables.length - correctSyllablesCount;
+     const remainingClues = activePuzzle.clues.length - correctCluesCount;
+     currentScore += (remainingSyllables * 10) + (remainingClues * 25) + (!allCluesCorrect ? 100 : 0) + 50;
+  }
+  currentScore = Math.max(0, currentScore);
+
+  if ((allCluesCorrect || isMessageGuessed) && !isWon) {
+    setIsWon(true);
+    setIsTimerRunning(false);
+    
+    // Update stats
+    setStats(prev => {
+      const today = new Date().toDateString();
+      let newCurrentStreak = prev.currentStreak;
+      let newMaxStreak = prev.maxStreak;
+      
+      if (isDaily) {
+        if (prev.lastPlayedDate !== today) {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          if (prev.lastPlayedDate === yesterday.toDateString()) {
+            newCurrentStreak += 1;
+          } else {
+            newCurrentStreak = 1;
+          }
+          newMaxStreak = Math.max(newMaxStreak, newCurrentStreak);
+        }
+      }
+
+      return {
+        ...prev,
+        played: prev.played + 1,
+        won: prev.won + 1,
+        currentStreak: newCurrentStreak,
+        maxStreak: newMaxStreak,
+        bestTime: prev.bestTime === null ? timeElapsed : Math.min(prev.bestTime, timeElapsed),
+        lastPlayedDate: isDaily ? today : prev.lastPlayedDate,
+      };
+    });
+  }
+
+  const handleGuessMessage = (guess: string) => {
+    const normalizedGuess = guess.replace(/[^a-zA-Z]/g, '').toUpperCase();
+    const normalizedActual = activePuzzle.hiddenMessage.replace(/[^a-zA-Z]/g, '').toUpperCase();
+    
+    if (normalizedGuess === normalizedActual) {
+      setIsMessageGuessed(true);
+      setShowGuessModal(false);
+      setGuessError('');
+    } else {
+      setGuessError('Incorrect guess. Keep trying!');
+    }
+  };
+
+  const renderHiddenMessage = () => {
+    let charIndex = 1;
+    return (
+      <div className="relative flex flex-wrap gap-2 justify-center mt-8 p-6 bg-slate-800 rounded-xl shadow-inner">
+        {!isMessageGuessed && !isWon && (
+           <button 
+             onClick={() => {
+               setGuessError('');
+               setShowGuessModal(true);
+             }} 
+             className="absolute -top-4 right-4 flex items-center gap-1 text-xs font-bold bg-primary-500 text-white px-3 py-1.5 rounded-full shadow-md hover:bg-primary-400 hover:-translate-y-0.5 transition-all"
+           >
+             <MessageSquareText className="w-3 h-3" />
+             Guess Message
+           </button>
+        )}
+        {activePuzzle.hiddenMessage.split('').map((char, i) => {
+          if (char === ' ') {
+            return <div key={i} className="w-4" />;
+          }
+          
+          const currentIndex = charIndex++;
+          let letter = '';
+          let isCorrect = false;
+          
+          if (isMessageGuessed) {
+            letter = char;
+            isCorrect = true;
+          } else {
+            for (const clue of activePuzzle.clues) {
+              for (let sIdx = 0; sIdx < clue.syllables.length; sIdx++) {
+                if (clue.syllables[sIdx].messageIndex === currentIndex) {
+                  const slotId = `slot_${clue.id}_${sIdx}`;
+                  const syllableIdInSlot = Object.keys(locations).find(id => locations[id] === slotId);
+                  if (syllableIdInSlot) {
+                    const text = allSyllables.find(s => s.id === syllableIdInSlot)?.text;
+                    if (text) {
+                      letter = text.charAt(0);
+                      isCorrect = text === clue.syllables[sIdx].text;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          return (
+            <div key={i} className="flex flex-col items-center">
+              <span className="text-[10px] text-slate-400 font-bold mb-1">{currentIndex}</span>
+              <div className={cn(
+                "w-8 h-10 border-b-2 flex items-center justify-center text-xl font-bold uppercase transition-colors duration-300",
+                letter ? (isCorrect ? "border-green-400 text-green-400" : "border-white text-white") : "border-slate-600"
+              )}>
+                {letter}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const loadDailyChallenge = async () => {
+    setIsGeneratingDaily(true);
+    try {
+      // In a real app, this would fetch today's puzzle from a server.
+      // For now, we generate one deterministically based on the date.
+      const today = new Date().toDateString();
+      const dailyTheme = `Daily Challenge: ${today}`;
+      const puzzle = await generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty);
+      setActivePuzzle(puzzle);
+      setIsDaily(true);
+      setMode('play');
+    } catch (err) {
+      console.error("Failed to load daily challenge", err);
+      alert("Failed to load daily challenge. Please try again.");
+    } finally {
+      setIsGeneratingDaily(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans pb-12 transition-colors duration-300">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary-600 text-white rounded-lg flex items-center justify-center font-bold text-xl">
+              S+
+            </div>
+            <h1 className="text-xl font-bold tracking-tight hidden sm:block">Syllacrostic+</h1>
+          </div>
+          
+          <div className="flex items-center gap-4 sm:gap-6">
+            {mode === 'play' && (
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">Time</span>
+                  <span className="text-lg sm:text-xl font-bold text-slate-700 font-mono">{formatTime(timeElapsed)}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">Score</span>
+                  <span className="text-lg sm:text-xl font-bold text-primary-600">{currentScore}</span>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowStats(true)}
+                className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
+                title="Statistics"
+              >
+                <BarChart2 className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => setShowSettings(true)}
+                className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 mt-8">
+        {mode === 'build' ? (
+          <PuzzleBuilder 
+            onPuzzleCreated={(newPuzzle) => {
+              setActivePuzzle(newPuzzle);
+              setIsDaily(false);
+              setMode('play');
+            }}
+            onCancel={() => setMode('play')}
+          />
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 mb-6 justify-center sm:justify-start">
+              <button 
+                onClick={loadDailyChallenge}
+                disabled={isGeneratingDaily}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-70"
+              >
+                <Calendar className="w-4 h-4" />
+                {isGeneratingDaily ? 'Loading...' : 'Daily Challenge'}
+              </button>
+              <button 
+                onClick={() => setMode('build')}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
+              >
+                <Wand2 className="w-4 h-4" />
+                Build Custom
+              </button>
+              <button 
+                onClick={resetPuzzle}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Restart
+              </button>
+              <button 
+                onClick={useHint}
+                disabled={allCluesCorrect}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-700 rounded-lg font-medium shadow-sm hover:bg-amber-200 transition-all disabled:opacity-50"
+              >
+                <Lightbulb className="w-4 h-4" />
+                Hint (-15)
+              </button>
+            </div>
+
+            {isWon && (
+              <div className="mb-8 p-6 bg-green-100 border-2 border-green-500 rounded-xl flex flex-col items-center justify-center text-center animate-in fade-in slide-in-from-top-4">
+                <Trophy className="w-12 h-12 text-green-600 mb-2" />
+                <h2 className="text-2xl font-bold text-green-800 mb-1">Puzzle Solved!</h2>
+                <p className="text-green-700">
+                  {isMessageGuessed ? "You guessed the hidden message!" : "You revealed the hidden message!"} 
+                  <br />Score: {currentScore} | Time: {formatTime(timeElapsed)}
+                </p>
+              </div>
+            )}
+
+            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* Clues Section */}
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-lg font-bold mb-4 flex items-center justify-between">
+                      <span>Clues</span>
+                      <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded">Theme: {activePuzzle.theme}</span>
+                    </h2>
+                    
+                    <div className="space-y-4">
+                      {activePuzzle.clues.map((clue, index) => {
+                        // Check if this specific clue is fully correct
+                        let isClueCorrect = true;
+                        let isClueFull = true;
+                        
+                        clue.syllables.forEach((expectedSyllable, i) => {
+                          const slotId = `slot_${clue.id}_${i}`;
+                          const occupantId = Object.keys(locations).find(id => locations[id] === slotId);
+                          const occupantText = occupantId ? allSyllables.find(s => s.id === occupantId)?.text : null;
+                          
+                          if (!occupantText) {
+                            isClueFull = false;
+                            isClueCorrect = false;
+                          } else if (occupantText !== expectedSyllable.text) {
+                            isClueCorrect = false;
+                          }
+                        });
+
+                        return (
+                          <div key={clue.id} className={cn(
+                            "flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg transition-colors",
+                            isClueCorrect ? "bg-green-50/50" : (isClueFull ? "bg-red-50/50" : "hover:bg-slate-50")
+                          )}>
+                            <div className="flex-1">
+                              <span className="font-bold text-slate-400 mr-2">{index + 1}.</span>
+                              <span className={cn("font-medium", isClueCorrect ? "text-green-800" : "text-slate-700")}>
+                                {clue.text}
+                              </span>
+                              <span className="text-xs text-slate-400 ml-2">({clue.syllables.length} syl)</span>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              {clue.syllables.map((expectedSyllable, i) => {
+                                const slotId = `slot_${clue.id}_${i}`;
+                                const occupantId = Object.keys(locations).find(id => locations[id] === slotId);
+                                const occupant = occupantId ? allSyllables.find(s => s.id === occupantId) : null;
+                                
+                                const isSlotCorrect = occupant?.text === expectedSyllable.text;
+                                const isSlotWrong = occupant && !isSlotCorrect && isClueFull;
+
+                                return (
+                                  <DroppableSlot 
+                                    key={slotId} 
+                                    id={slotId} 
+                                    messageIndex={expectedSyllable.messageIndex}
+                                    isCorrect={isSlotCorrect}
+                                  >
+                                    {occupant && (
+                                      <DraggableSyllable 
+                                        id={occupant.id} 
+                                        text={occupant.text} 
+                                        isPlaced={true}
+                                        isCorrect={isSlotCorrect}
+                                        isWrong={isSlotWrong}
+                                      />
+                                    )}
+                                  </DroppableSlot>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Syllable Bank Section */}
+                <div className="lg:col-span-5">
+                  <div className="sticky top-24 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-lg font-bold mb-4 flex items-center justify-between">
+                      <span>Syllable Bank</span>
+                      <span className="text-sm font-normal text-slate-500">
+                        {Object.values(locations).filter(l => l === 'bank').length} remaining
+                      </span>
+                    </h2>
+                    
+                    <DroppableBank id="bank">
+                      {allSyllables.map(syllable => {
+                        if (locations[syllable.id] === 'bank') {
+                          return (
+                            <DraggableSyllable 
+                              key={syllable.id} 
+                              id={syllable.id} 
+                              text={syllable.text} 
+                              isPlaced={false}
+                            />
+                          );
+                        }
+                        return null;
+                      })}
+                      {Object.values(locations).filter(l => l === 'bank').length === 0 && (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400 italic py-8">
+                          Bank is empty
+                        </div>
+                      )}
+                    </DroppableBank>
+                  </div>
+                </div>
+
+              </div>
+            </DndContext>
+
+            {/* Hidden Message Section */}
+            <div className="mt-12">
+              <h2 className="text-center text-lg font-bold text-slate-700 mb-2">Hidden Message</h2>
+              <p className="text-center text-sm text-slate-500 mb-4">First letters of numbered syllables reveal the quote</p>
+              {renderHiddenMessage()}
+            </div>
+          </>
+        )}
+      </main>
+
+      {showSettings && (
+        <SettingsModal 
+          settings={settings} 
+          onUpdate={setSettings} 
+          onClose={() => setShowSettings(false)} 
+        />
+      )}
+
+      {showStats && (
+        <StatsModal 
+          stats={stats} 
+          onClose={() => setShowStats(false)} 
+        />
+      )}
+
+      {showGuessModal && (
+        <GuessModal 
+          onClose={() => setShowGuessModal(false)}
+          onGuess={handleGuessMessage}
+          error={guessError}
+        />
+      )}
+    </div>
+  );
+}
+
