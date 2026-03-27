@@ -55,6 +55,8 @@ export default function App() {
   const [isGeneratingDaily, setIsGeneratingDaily] = useState(false);
   const [isGeneratingRandom, setIsGeneratingRandom] = useState(false);
   const [apiState, setApiState] = useState<'checking' | 'connected' | 'error' | 'missing_key'>('checking');
+  const [isPreloadingRandom, setIsPreloadingRandom] = useState(false);
+  const [preloadedRandom, setPreloadedRandom] = useState<PuzzleDef | null>(null);
 
   // Apply theme
   useEffect(() => {
@@ -367,28 +369,57 @@ export default function App() {
     );
   };
 
-  const saveToDb = (puzzle: PuzzleDef) => {
+  const saveToDb = useCallback((puzzle: PuzzleDef) => {
     setPuzzleDb(prev => {
       if (prev.find(p => p.id === puzzle.id)) return prev;
       return [puzzle, ...prev];
     });
-  };
+  }, [setPuzzleDb]);
+
+  // Preload Daily Challenge
+  useEffect(() => {
+    if (apiState !== 'connected') return;
+    const today = new Date().toDateString();
+    const dailyTheme = `Daily Challenge: ${today}`;
+    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
+    
+    if (!existingDaily) {
+      generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty)
+        .then(puzzle => saveToDb(puzzle))
+        .catch(err => console.error("Background daily generation failed:", err));
+    }
+  }, [apiState, puzzleDb, settings.difficulty, saveToDb]);
+
+  // Preload Random Puzzle
+  useEffect(() => {
+    if (apiState !== 'connected' || preloadedRandom || isPreloadingRandom) return;
+    
+    setIsPreloadingRandom(true);
+    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty)
+      .then(puzzle => setPreloadedRandom(puzzle))
+      .catch(err => console.error("Background random generation failed:", err))
+      .finally(() => setIsPreloadingRandom(false));
+  }, [apiState, preloadedRandom, isPreloadingRandom, settings.difficulty]);
+
+  // Clear preloaded random if difficulty changes
+  useEffect(() => {
+    setPreloadedRandom(null);
+  }, [settings.difficulty]);
 
   const loadDailyChallenge = async () => {
+    const today = new Date().toDateString();
+    const dailyTheme = `Daily Challenge: ${today}`;
+    
+    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
+    if (existingDaily) {
+      setActivePuzzle(existingDaily);
+      setIsDaily(true);
+      setMode('play');
+      return;
+    }
+
     setIsGeneratingDaily(true);
     try {
-      const today = new Date().toDateString();
-      const dailyTheme = `Daily Challenge: ${today}`;
-      
-      const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
-      if (existingDaily) {
-        setActivePuzzle(existingDaily);
-        setIsDaily(true);
-        setMode('play');
-        setIsGeneratingDaily(false);
-        return;
-      }
-
       const puzzle = await generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty);
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
@@ -403,6 +434,15 @@ export default function App() {
   };
 
   const loadRandomPuzzle = async () => {
+    if (preloadedRandom) {
+      saveToDb(preloadedRandom);
+      setActivePuzzle(preloadedRandom);
+      setIsDaily(false);
+      setMode('play');
+      setPreloadedRandom(null); // Trigger next preload
+      return;
+    }
+
     setIsGeneratingRandom(true);
     try {
       const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty);

@@ -39,16 +39,20 @@ export async function generatePuzzle(
   Difficulty: ${difficulty} - ${difficultyPrompt}
   ${instructions ? `Additional Instructions:\n${instructions}` : ''}
 
-  Rules:
-  1. The answers MUST be split into valid syllables (uppercase).
-  2. The hidden message is revealed by taking the FIRST LETTER of specific syllables in order.
-  3. Assign a \`messageIndex\` (starting from 1) to the syllables whose first letter matches the hidden message characters (ignoring spaces).
-  4. Every non-space letter in the hidden message MUST have exactly one corresponding syllable with that \`messageIndex\`.
-  5. The total number of \`messageIndex\` properties MUST exactly equal the number of non-space characters in the hidden message.
-  6. Ensure syllables are logically split (e.g., WA-TER, COM-PU-TER).`;
+  CRITICAL RULES FOR CLUES AND ANSWERS:
+  1. For each clue, you MUST provide the 'text' (the hint) and the 'answer' (the full word).
+  2. The 'answer' MUST perfectly match the 'text' clue. They must be highly relevant to each other.
+  3. The 'syllables' array MUST contain the 'answer' split into valid syllables (uppercase). When combined, the syllables must exactly equal the 'answer'.
+  4. Ensure syllables are logically split (e.g., WA-TER, COM-PU-TER).
+  
+  RULES FOR THE HIDDEN MESSAGE:
+  5. The hidden message is revealed by taking the FIRST LETTER of specific syllables in order.
+  6. Assign a \`messageIndex\` (starting from 1) to the syllables whose first letter matches the hidden message characters (ignoring spaces).
+  7. Every non-space letter in the hidden message MUST have exactly one corresponding syllable with that \`messageIndex\`.
+  8. The total number of \`messageIndex\` properties MUST exactly equal the number of non-space characters in the hidden message.`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-lite-preview",
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -65,6 +69,7 @@ export async function generatePuzzle(
               properties: {
                 id: { type: Type.NUMBER },
                 text: { type: Type.STRING },
+                answer: { type: Type.STRING },
                 syllables: {
                   type: Type.ARRAY,
                   items: {
@@ -78,7 +83,7 @@ export async function generatePuzzle(
                   }
                 }
               },
-              required: ["id", "text", "syllables"]
+              required: ["id", "text", "answer", "syllables"]
             }
           }
         },
