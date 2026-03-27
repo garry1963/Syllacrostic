@@ -4,14 +4,15 @@ import { PUZZLE, SyllableDef, PuzzleDef } from './data';
 import { DroppableBank } from './components/DroppableBank';
 import { DroppableSlot } from './components/DroppableSlot';
 import { DraggableSyllable } from './components/DraggableSyllable';
-import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText } from 'lucide-react';
+import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices } from 'lucide-react';
 import { cn } from './lib/utils';
 import { PuzzleBuilder } from './components/PuzzleBuilder';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsModal, Settings as AppSettings } from './components/SettingsModal';
 import { StatsModal } from './components/StatsModal';
 import { GuessModal } from './components/GuessModal';
+import { PuzzleLibraryModal } from './components/PuzzleLibraryModal';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { generatePuzzle } from './lib/puzzleGenerator';
+import { generatePuzzle, checkApiConnection } from './lib/puzzleGenerator';
 
 function shuffle<T>(array: T[]): T[] {
   const newArray = [...array];
@@ -23,7 +24,7 @@ function shuffle<T>(array: T[]): T[] {
 }
 
 export default function App() {
-  const [settings, setSettings] = useLocalStorage('syllacrostic-settings', { theme: 'theme-blue', difficulty: 'Medium' });
+  const [settings, setSettings] = useLocalStorage<AppSettings>('syllacrostic-settings', { theme: 'theme-blue', difficulty: 'Medium', showApiStatus: false });
   const [stats, setStats] = useLocalStorage('syllacrostic-stats', {
     played: 0,
     won: 0,
@@ -34,6 +35,7 @@ export default function App() {
   });
 
   const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
+  const [puzzleDb, setPuzzleDb] = useLocalStorage<PuzzleDef[]>('syllacrostic-puzzle-db', [PUZZLE]);
   const [mode, setMode] = useState<'play' | 'build'>('play');
   const [isDaily, setIsDaily] = useLocalStorage('syllacrostic-is-daily', false);
 
@@ -45,16 +47,27 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showGuessModal, setShowGuessModal] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [guessError, setGuessError] = useState('');
 
   const [timeElapsed, setTimeElapsed] = useLocalStorage('syllacrostic-time', 0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isGeneratingDaily, setIsGeneratingDaily] = useState(false);
+  const [isGeneratingRandom, setIsGeneratingRandom] = useState(false);
+  const [apiState, setApiState] = useState<'checking' | 'connected' | 'error' | 'missing_key'>('checking');
 
   // Apply theme
   useEffect(() => {
     document.documentElement.className = settings.theme;
   }, [settings.theme]);
+
+  // Check API Connection
+  useEffect(() => {
+    if (settings.showApiStatus) {
+      setApiState('checking');
+      checkApiConnection().then(setApiState);
+    }
+  }, [settings.showApiStatus]);
 
   // Timer logic
   useEffect(() => {
@@ -101,8 +114,10 @@ export default function App() {
       setIsWon(false);
       setTimeElapsed(0);
       setIsMessageGuessed(false);
+      setIsTimerRunning(true);
+    } else {
+      setIsTimerRunning(!isWon);
     }
-    setIsTimerRunning(!isWon);
   }, [allSyllables, activePuzzle.id]);
 
   const sensors = useSensors(
@@ -352,14 +367,30 @@ export default function App() {
     );
   };
 
+  const saveToDb = (puzzle: PuzzleDef) => {
+    setPuzzleDb(prev => {
+      if (prev.find(p => p.id === puzzle.id)) return prev;
+      return [puzzle, ...prev];
+    });
+  };
+
   const loadDailyChallenge = async () => {
     setIsGeneratingDaily(true);
     try {
-      // In a real app, this would fetch today's puzzle from a server.
-      // For now, we generate one deterministically based on the date.
       const today = new Date().toDateString();
       const dailyTheme = `Daily Challenge: ${today}`;
+      
+      const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
+      if (existingDaily) {
+        setActivePuzzle(existingDaily);
+        setIsDaily(true);
+        setMode('play');
+        setIsGeneratingDaily(false);
+        return;
+      }
+
       const puzzle = await generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty);
+      saveToDb(puzzle);
       setActivePuzzle(puzzle);
       setIsDaily(true);
       setMode('play');
@@ -369,6 +400,51 @@ export default function App() {
     } finally {
       setIsGeneratingDaily(false);
     }
+  };
+
+  const loadRandomPuzzle = async () => {
+    setIsGeneratingRandom(true);
+    try {
+      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty);
+      saveToDb(puzzle);
+      setActivePuzzle(puzzle);
+      setIsDaily(false);
+      setMode('play');
+    } catch (err) {
+      console.error("Failed to generate random puzzle", err);
+      alert("Failed to generate random puzzle. Please try again.");
+    } finally {
+      setIsGeneratingRandom(false);
+    }
+  };
+
+  const renderApiStatus = () => {
+    if (!settings.showApiStatus) return null;
+
+    let icon = <Loader2 className="w-4 h-4 animate-spin text-slate-400" />;
+    let text = "Checking API...";
+    let colorClass = "bg-slate-100 text-slate-600 border-slate-200";
+
+    if (apiState === 'connected') {
+      icon = <Wifi className="w-4 h-4 text-emerald-500" />;
+      text = "API Connected";
+      colorClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
+    } else if (apiState === 'error') {
+      icon = <WifiOff className="w-4 h-4 text-red-500" />;
+      text = "API Error";
+      colorClass = "bg-red-50 text-red-700 border-red-200";
+    } else if (apiState === 'missing_key') {
+      icon = <WifiOff className="w-4 h-4 text-amber-500" />;
+      text = "API Key Missing";
+      colorClass = "bg-amber-50 text-amber-700 border-amber-200";
+    }
+
+    return (
+      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm ${colorClass}`}>
+        {icon}
+        <span className="hidden sm:inline">{text}</span>
+      </div>
+    );
   };
 
   return (
@@ -383,6 +459,14 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4 sm:gap-6">
+            {renderApiStatus()}
+            <button 
+              onClick={() => setShowLibrary(true)}
+              className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
+              title="Puzzle Library"
+            >
+              <Library className="w-5 h-5" />
+            </button>
             {mode === 'play' && (
               <div className="flex items-center gap-4">
                 <div className="flex flex-col items-end">
@@ -420,6 +504,7 @@ export default function App() {
         {mode === 'build' ? (
           <PuzzleBuilder 
             onPuzzleCreated={(newPuzzle) => {
+              saveToDb(newPuzzle);
               setActivePuzzle(newPuzzle);
               setIsDaily(false);
               setMode('play');
@@ -431,11 +516,19 @@ export default function App() {
             <div className="flex flex-wrap gap-2 mb-6 justify-center sm:justify-start">
               <button 
                 onClick={loadDailyChallenge}
-                disabled={isGeneratingDaily}
+                disabled={isGeneratingDaily || isGeneratingRandom}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-70"
               >
                 <Calendar className="w-4 h-4" />
                 {isGeneratingDaily ? 'Loading...' : 'Daily Challenge'}
+              </button>
+              <button 
+                onClick={loadRandomPuzzle}
+                disabled={isGeneratingDaily || isGeneratingRandom}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all disabled:opacity-70"
+              >
+                <Dices className="w-4 h-4" />
+                {isGeneratingRandom ? 'Loading...' : 'Random Puzzle'}
               </button>
               <button 
                 onClick={() => setMode('build')}
@@ -617,6 +710,26 @@ export default function App() {
           onClose={() => setShowGuessModal(false)}
           onGuess={handleGuessMessage}
           error={guessError}
+        />
+      )}
+
+      {showLibrary && (
+        <PuzzleLibraryModal
+          puzzles={puzzleDb}
+          onSelect={(p) => {
+            setActivePuzzle(p);
+            setIsDaily(false);
+            setMode('play');
+            setShowLibrary(false);
+          }}
+          onDelete={(id) => {
+            setPuzzleDb(prev => prev.filter(p => p.id !== id));
+            if (activePuzzle.id === id && puzzleDb.length > 1) {
+              const nextPuzzle = puzzleDb.find(p => p.id !== id);
+              if (nextPuzzle) setActivePuzzle(nextPuzzle);
+            }
+          }}
+          onClose={() => setShowLibrary(false)}
         />
       )}
     </div>

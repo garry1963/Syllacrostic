@@ -1,9 +1,10 @@
 import React from 'react';
-import { X, Palette, Gauge } from 'lucide-react';
+import { X, Palette, Gauge, Wifi } from 'lucide-react';
 
-interface Settings {
+export interface Settings {
   theme: string;
   difficulty: string;
+  showApiStatus?: boolean;
 }
 
 interface Props {
@@ -81,6 +82,28 @@ export function SettingsModal({ settings, onUpdate, onClose }: Props) {
             <p className="text-xs text-slate-400 mt-2 text-center">
               Applies to Daily Challenges and Custom Puzzles.
             </p>
+          </div>
+
+          {/* API Connection Status Toggle */}
+          <div>
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Wifi className="w-4 h-4" /> Advanced
+            </h3>
+            <label className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
+              <div>
+                <span className="font-bold text-slate-700 block">Show API Connection State</span>
+                <span className="text-xs text-slate-500">Display Gemini API status in the header</span>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors relative ${settings.showApiStatus ? 'bg-primary-500' : 'bg-slate-300'}`}>
+                <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${settings.showApiStatus ? 'translate-x-6' : 'translate-x-0'}`} />
+              </div>
+              <input 
+                type="checkbox" 
+                className="hidden"
+                checked={!!settings.showApiStatus}
+                onChange={(e) => onUpdate({ ...settings, showApiStatus: e.target.checked })}
+              />
+            </label>
           </div>
         </div>
         

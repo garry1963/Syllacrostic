@@ -1,6 +1,25 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { PuzzleDef } from '../data';
 
+export async function checkApiConnection(): Promise<'connected' | 'error' | 'missing_key'> {
+  if (!process.env.GEMINI_API_KEY) {
+    return 'missing_key';
+  }
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    // A very lightweight call to verify the key is valid and network is up
+    await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: "ping",
+      config: { maxOutputTokens: 1 }
+    });
+    return 'connected';
+  } catch (error) {
+    console.error("API Connection Error:", error);
+    return 'error';
+  }
+}
+
 export async function generatePuzzle(
   theme: string, 
   hiddenMessage: string, 
@@ -29,7 +48,7 @@ export async function generatePuzzle(
   6. Ensure syllables are logically split (e.g., WA-TER, COM-PU-TER).`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-pro-preview",
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
