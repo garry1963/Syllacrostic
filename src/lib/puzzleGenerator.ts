@@ -48,7 +48,7 @@ export async function generatePuzzle(
   6. Ensure syllables are logically split (e.g., WA-TER, COM-PU-TER).`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-lite-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",

@@ -4,7 +4,7 @@ import { PUZZLE, SyllableDef, PuzzleDef } from './data';
 import { DroppableBank } from './components/DroppableBank';
 import { DroppableSlot } from './components/DroppableSlot';
 import { DraggableSyllable } from './components/DraggableSyllable';
-import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices } from 'lucide-react';
+import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices, Flame } from 'lucide-react';
 import { cn } from './lib/utils';
 import { PuzzleBuilder } from './components/PuzzleBuilder';
 import { SettingsModal, Settings as AppSettings } from './components/SettingsModal';
@@ -514,14 +514,20 @@ export default function App() {
         ) : (
           <>
             <div className="flex flex-wrap gap-2 mb-6 justify-center sm:justify-start">
-              <button 
-                onClick={loadDailyChallenge}
-                disabled={isGeneratingDaily || isGeneratingRandom}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-70"
-              >
-                <Calendar className="w-4 h-4" />
-                {isGeneratingDaily ? 'Loading...' : 'Daily Challenge'}
-              </button>
+              <div className="flex items-stretch shadow-sm rounded-lg hover:shadow-md transition-all">
+                <button 
+                  onClick={loadDailyChallenge}
+                  disabled={isGeneratingDaily || isGeneratingRandom}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-l-lg font-medium disabled:opacity-70"
+                >
+                  <Calendar className="w-4 h-4" />
+                  {isGeneratingDaily ? 'Loading...' : 'Daily Challenge'}
+                </button>
+                <div className="flex items-center gap-1 px-3 bg-orange-50 text-orange-600 border border-l-0 border-orange-200 rounded-r-lg font-bold" title="Daily Win Streak">
+                  <Flame className="w-4 h-4 fill-orange-500" />
+                  <span>{stats.currentStreak}</span>
+                </div>
+              </div>
               <button 
                 onClick={loadRandomPuzzle}
                 disabled={isGeneratingDaily || isGeneratingRandom}
