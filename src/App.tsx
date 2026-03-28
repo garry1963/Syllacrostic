@@ -4,7 +4,7 @@ import { PUZZLE, SyllableDef, PuzzleDef } from './data';
 import { DroppableBank } from './components/DroppableBank';
 import { DroppableSlot } from './components/DroppableSlot';
 import { DraggableSyllable } from './components/DraggableSyllable';
-import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices, Flame } from 'lucide-react';
+import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices, Flame, Database } from 'lucide-react';
 import { cn } from './lib/utils';
 import { PuzzleBuilder } from './components/PuzzleBuilder';
 import { SettingsModal, Settings as AppSettings } from './components/SettingsModal';
@@ -37,6 +37,7 @@ export default function App() {
 
   const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
   const [puzzleDb, setPuzzleDb] = useLocalStorage<PuzzleDef[]>('syllacrostic-puzzle-db', [PUZZLE]);
+  const [wordPool, setWordPool] = useLocalStorage<{clue: string, syllables: string}[]>('syllacrostic-word-pool', []);
   const [mode, setMode] = useState<'play' | 'build'>('play');
   const [isDaily, setIsDaily] = useLocalStorage('syllacrostic-is-daily', false);
 
@@ -505,6 +506,136 @@ export default function App() {
     }
   };
 
+  const loadRandomFromLibrary = () => {
+    if (puzzleDb.length === 0) {
+      alert("Your library is empty!");
+      return;
+    }
+    const randomPuzzle = puzzleDb[Math.floor(Math.random() * puzzleDb.length)];
+    setActivePuzzle(randomPuzzle);
+    setIsDaily(false);
+    setMode('play');
+  };
+
+  const loadFromPool = () => {
+    if (wordPool.length < 5) {
+      alert("Your word pool needs at least 5 clue/syllable pairs to generate a puzzle. Add more in the Custom Builder.");
+      return;
+    }
+    
+    let selected: {clue: string, syllables: string}[] = [];
+    let finalHiddenMessage = "";
+    
+    // Try to create a puzzle with a hidden message
+    const validHiddenWords = wordPool.filter(p => {
+      const ans = p.syllables.replace(/[^a-zA-Z]/g, '');
+      return ans.length >= 4 && ans.length <= 8;
+    });
+    
+    let success = false;
+    
+    if (validHiddenWords.length > 0) {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const hiddenItem = validHiddenWords[Math.floor(Math.random() * validHiddenWords.length)];
+        const candidateMessage = hiddenItem.syllables.replace(/[^a-zA-Z]/g, '').toUpperCase();
+        const messageChars = candidateMessage.split('');
+        
+        let tempSelected: {clue: string, syllables: string}[] = [];
+        let charIndex = 0;
+        let availablePool = shuffle(wordPool.filter(p => p.clue !== hiddenItem.clue));
+        
+        while (tempSelected.length < 7 && charIndex < messageChars.length && availablePool.length > 0) {
+          let bestWordIdx = -1;
+          let maxMatches = 0;
+          
+          for (let i = 0; i < availablePool.length; i++) {
+            const item = availablePool[i];
+            const syllables = item.syllables.split('-').map(s => s.trim().toUpperCase());
+            let tempCharIdx = charIndex;
+            let matches = 0;
+            for (const syl of syllables) {
+              if (tempCharIdx < messageChars.length && syl.startsWith(messageChars[tempCharIdx])) {
+                matches++;
+                tempCharIdx++;
+              }
+            }
+            if (matches > maxMatches) {
+              maxMatches = matches;
+              bestWordIdx = i;
+            }
+          }
+          
+          if (bestWordIdx !== -1) {
+            tempSelected.push(availablePool[bestWordIdx]);
+            charIndex += maxMatches;
+            availablePool.splice(bestWordIdx, 1);
+          } else {
+            break;
+          }
+        }
+        
+        if (charIndex === messageChars.length) {
+          while (tempSelected.length < 5 && availablePool.length > 0) {
+            tempSelected.push(availablePool.pop()!);
+          }
+          selected = tempSelected;
+          finalHiddenMessage = candidateMessage;
+          success = true;
+          break;
+        }
+      }
+    }
+    
+    if (!success) {
+      // Fallback to random without hidden message
+      const count = Math.min(wordPool.length, Math.floor(Math.random() * 3) + 5);
+      const shuffled = shuffle([...wordPool]);
+      selected = shuffled.slice(0, count);
+      finalHiddenMessage = "";
+    }
+    
+    const puzzleId = `pool-${Date.now()}`;
+    const formattedClues = selected.map((item, index) => {
+      const syllableParts = item.syllables.split('-').map(s => s.trim().toUpperCase());
+      const answer = syllableParts.join('');
+      return {
+        id: index + 1,
+        text: item.clue.trim(),
+        answer,
+        syllables: syllableParts.map((text, sIndex) => ({
+          id: `${puzzleId}-c${index + 1}-s${sIndex + 1}`,
+          text,
+          messageIndex: undefined as number | undefined
+        }))
+      };
+    });
+
+    if (finalHiddenMessage) {
+      let charIndex = 0;
+      const messageChars = finalHiddenMessage.split('');
+      for (const clue of formattedClues) {
+        for (const syllable of clue.syllables) {
+          if (charIndex < messageChars.length && syllable.text.startsWith(messageChars[charIndex])) {
+            syllable.messageIndex = charIndex + 1;
+            charIndex++;
+          }
+        }
+      }
+    }
+
+    const puzzle: PuzzleDef = {
+      id: puzzleId,
+      theme: finalHiddenMessage ? "Offline Random Pool (Hidden Word)" : "Offline Random Pool",
+      hiddenMessage: finalHiddenMessage,
+      clues: formattedClues
+    };
+
+    saveToDb(puzzle);
+    setActivePuzzle(puzzle);
+    setIsDaily(false);
+    setMode('play');
+  };
+
   const renderApiStatus = () => {
     if (!settings.showApiStatus) return null;
 
@@ -590,6 +721,8 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 mt-8">
         {mode === 'build' ? (
           <PuzzleBuilder 
+            wordPool={wordPool}
+            setWordPool={setWordPool}
             onPuzzleCreated={(newPuzzle) => {
               saveToDb(newPuzzle);
               setActivePuzzle(newPuzzle);
@@ -622,6 +755,20 @@ export default function App() {
               >
                 <Dices className="w-4 h-4" />
                 {isGeneratingRandom ? 'Loading...' : 'Random Puzzle'}
+              </button>
+              <button 
+                onClick={loadRandomFromLibrary}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
+              >
+                <Library className="w-4 h-4" />
+                Random from Library
+              </button>
+              <button 
+                onClick={loadFromPool}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
+              >
+                <Database className="w-4 h-4" />
+                Random from Pool
               </button>
               <button 
                 onClick={() => setMode('build')}
