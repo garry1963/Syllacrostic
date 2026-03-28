@@ -5,6 +5,8 @@ export interface Settings {
   theme: string;
   difficulty: string;
   showApiStatus?: boolean;
+  placementMethod?: 'drag' | 'click';
+  sortSyllables?: boolean;
 }
 
 interface Props {
@@ -82,6 +84,62 @@ export function SettingsModal({ settings, onUpdate, onClose }: Props) {
             <p className="text-xs text-slate-400 mt-2 text-center">
               Applies to Daily Challenges and Custom Puzzles.
             </p>
+          </div>
+
+          {/* Gameplay Preferences */}
+          <div>
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Gauge className="w-4 h-4" /> Gameplay Preferences
+            </h3>
+            
+            <div className="space-y-4">
+              {/* Placement Method */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div className="mb-3">
+                  <span className="font-bold text-slate-700 block">Placement Method</span>
+                  <span className="text-xs text-slate-500">How do you want to move syllables?</span>
+                </div>
+                <div className="flex bg-slate-200 p-1 rounded-lg">
+                  <button
+                    onClick={() => onUpdate({ ...settings, placementMethod: 'drag' })}
+                    className={`flex-1 py-2 px-4 rounded-md text-sm font-bold transition-all ${
+                      (!settings.placementMethod || settings.placementMethod === 'drag')
+                        ? 'bg-white text-primary-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Drag & Drop
+                  </button>
+                  <button
+                    onClick={() => onUpdate({ ...settings, placementMethod: 'click' })}
+                    className={`flex-1 py-2 px-4 rounded-md text-sm font-bold transition-all ${
+                      settings.placementMethod === 'click'
+                        ? 'bg-white text-primary-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Click to Move
+                  </button>
+                </div>
+              </div>
+
+              {/* Sort Syllables */}
+              <label className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
+                <div>
+                  <span className="font-bold text-slate-700 block">Sort Syllable Bank</span>
+                  <span className="text-xs text-slate-500">Alphabetize syllables in the bank</span>
+                </div>
+                <div className={`w-12 h-6 rounded-full transition-colors relative ${settings.sortSyllables ? 'bg-primary-500' : 'bg-slate-300'}`}>
+                  <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${settings.sortSyllables ? 'translate-x-6' : 'translate-x-0'}`} />
+                </div>
+                <input 
+                  type="checkbox" 
+                  className="hidden"
+                  checked={!!settings.sortSyllables}
+                  onChange={(e) => onUpdate({ ...settings, sortSyllables: e.target.checked })}
+                />
+              </label>
+            </div>
           </div>
 
           {/* API Connection Status Toggle */}

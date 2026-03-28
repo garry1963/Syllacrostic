@@ -9,11 +9,14 @@ interface Props {
   isPlaced: boolean;
   isCorrect?: boolean;
   isWrong?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
 }
 
-export function DraggableSyllable({ id, text, isPlaced, isCorrect, isWrong }: Props) {
+export function DraggableSyllable({ id, text, isPlaced, isCorrect, isWrong, onClick, disabled }: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: id,
+    disabled: disabled,
   });
 
   const style = transform ? {
@@ -25,10 +28,13 @@ export function DraggableSyllable({ id, text, isPlaced, isCorrect, isWrong }: Pr
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
+      {...(!disabled ? listeners : {})}
+      {...(!disabled ? attributes : {})}
+      onClick={onClick}
       className={cn(
-        "flex items-center justify-center px-4 py-2 bg-white border-2 rounded-lg shadow-sm cursor-grab active:cursor-grabbing select-none text-lg font-bold transition-colors touch-none",
+        "flex items-center justify-center px-4 py-2 bg-white border-2 rounded-lg shadow-sm select-none text-lg font-bold transition-colors touch-none",
+        !disabled && "cursor-grab active:cursor-grabbing",
+        disabled && onClick && "cursor-pointer hover:scale-105",
         isDragging && "opacity-80 shadow-lg scale-105 z-50",
         isPlaced && !isCorrect && !isWrong && "border-slate-300 text-slate-700",
         !isPlaced && "border-primary-400 text-primary-800 hover:border-primary-500 hover:bg-primary-50",

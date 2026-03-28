@@ -32,6 +32,7 @@ export default function App() {
     maxStreak: 0,
     bestTime: null as number | null,
     lastPlayedDate: null as string | null,
+    completionTimes: [] as number[],
   });
 
   const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
@@ -57,6 +58,8 @@ export default function App() {
   const [apiState, setApiState] = useState<'checking' | 'connected' | 'error' | 'missing_key'>('checking');
   const [isPreloadingRandom, setIsPreloadingRandom] = useState(false);
   const [preloadedRandom, setPreloadedRandom] = useState<PuzzleDef | null>(null);
+
+  const [selectedSyllable, setSelectedSyllable] = useState<string | null>(null);
 
   // Apply theme
   useEffect(() => {
@@ -92,8 +95,13 @@ export default function App() {
     activePuzzle.clues.forEach(clue => {
       syllables.push(...clue.syllables);
     });
+    
+    if (settings.sortSyllables) {
+      return syllables.sort((a, b) => a.text.localeCompare(b.text));
+    }
+    
     return shuffle(syllables);
-  }, [activePuzzle]);
+  }, [activePuzzle, settings.sortSyllables]);
 
   // Initialize locations to 'bank' when puzzle changes
   useEffect(() => {
@@ -137,6 +145,8 @@ export default function App() {
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (settings.placementMethod === 'click') return;
+    
     const { active, over } = event;
     if (!over) return;
 
@@ -159,6 +169,44 @@ export default function App() {
       newLocations[syllableId] = targetLocation;
       return newLocations;
     });
+  };
+
+  const handleSyllableClick = (syllableId: string, currentLocation: string) => {
+    if (settings.placementMethod !== 'click') return;
+
+    if (currentLocation === 'bank') {
+      // If clicking in bank, select it
+      setSelectedSyllable(syllableId === selectedSyllable ? null : syllableId);
+    } else {
+      // If clicking in a slot, move it back to bank
+      setLocations(prev => {
+        const newLocs = { ...prev };
+        newLocs[syllableId] = 'bank';
+        return newLocs;
+      });
+      setSelectedSyllable(null);
+    }
+  };
+
+  const handleSlotClick = (slotId: string) => {
+    if (settings.placementMethod !== 'click' || !selectedSyllable) return;
+
+    setLocations(prev => {
+      const newLocs = { ...prev };
+      
+      // Check if slot is occupied
+      const occupantId = Object.keys(newLocs).find(id => newLocs[id] === slotId);
+      
+      if (occupantId && occupantId !== selectedSyllable) {
+        // Swap
+        newLocs[occupantId] = prev[selectedSyllable];
+      }
+      
+      newLocs[selectedSyllable] = slotId;
+      return newLocs;
+    });
+    
+    setSelectedSyllable(null);
   };
 
   const useHint = () => {
@@ -290,6 +338,7 @@ export default function App() {
         maxStreak: newMaxStreak,
         bestTime: prev.bestTime === null ? timeElapsed : Math.min(prev.bestTime, timeElapsed),
         lastPlayedDate: isDaily ? today : prev.lastPlayedDate,
+        completionTimes: [...(prev.completionTimes || []), timeElapsed],
       };
     });
   }
@@ -384,7 +433,7 @@ export default function App() {
     const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
     
     if (!existingDaily) {
-      generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty)
+      generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty)
         .then(puzzle => saveToDb(puzzle))
         .catch(err => console.error("Background daily generation failed:", err));
     }
@@ -420,7 +469,7 @@ export default function App() {
 
     setIsGeneratingDaily(true);
     try {
-      const puzzle = await generatePuzzle(dailyTheme, "DAILY WIN", "Make it a general knowledge puzzle.", settings.difficulty);
+      const puzzle = await generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty);
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
       setIsDaily(true);
@@ -669,6 +718,8 @@ export default function App() {
                                     id={slotId} 
                                     messageIndex={expectedSyllable.messageIndex}
                                     isCorrect={isSlotCorrect}
+                                    onClick={() => handleSlotClick(slotId)}
+                                    isHighlighted={settings.placementMethod === 'click' && selectedSyllable !== null}
                                   >
                                     {occupant && (
                                       <DraggableSyllable 
@@ -677,6 +728,8 @@ export default function App() {
                                         isPlaced={true}
                                         isCorrect={isSlotCorrect}
                                         isWrong={isSlotWrong}
+                                        disabled={settings.placementMethod === 'click'}
+                                        onClick={() => handleSyllableClick(occupant.id, slotId)}
                                       />
                                     )}
                                   </DroppableSlot>
@@ -704,12 +757,18 @@ export default function App() {
                       {allSyllables.map(syllable => {
                         if (locations[syllable.id] === 'bank') {
                           return (
-                            <DraggableSyllable 
-                              key={syllable.id} 
-                              id={syllable.id} 
-                              text={syllable.text} 
-                              isPlaced={false}
-                            />
+                            <div key={syllable.id} className="relative">
+                              <DraggableSyllable 
+                                id={syllable.id} 
+                                text={syllable.text} 
+                                isPlaced={false}
+                                disabled={settings.placementMethod === 'click'}
+                                onClick={() => handleSyllableClick(syllable.id, 'bank')}
+                              />
+                              {settings.placementMethod === 'click' && selectedSyllable === syllable.id && (
+                                <div className="absolute inset-0 border-4 border-primary-500 rounded-lg pointer-events-none animate-pulse" />
+                              )}
+                            </div>
                           );
                         }
                         return null;

@@ -7,6 +7,7 @@ interface Stats {
   currentStreak: number;
   maxStreak: number;
   bestTime: number | null;
+  completionTimes?: number[];
 }
 
 interface Props {
@@ -21,6 +22,22 @@ export function StatsModal({ stats, onClose }: Props) {
   };
 
   const winRate = stats.played > 0 ? Math.round((stats.won / stats.played) * 100) : 0;
+
+  const calculateAverageTime = () => {
+    if (!stats.completionTimes || stats.completionTimes.length === 0) return null;
+    const sum = stats.completionTimes.reduce((a, b) => a + b, 0);
+    return Math.round(sum / stats.completionTimes.length);
+  };
+
+  const calculateMedianTime = () => {
+    if (!stats.completionTimes || stats.completionTimes.length === 0) return null;
+    const sorted = [...stats.completionTimes].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  };
+
+  const avgTime = calculateAverageTime();
+  const medTime = calculateMedianTime();
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -70,6 +87,22 @@ export function StatsModal({ stats, onClose }: Props) {
                 <span className="font-semibold">Best Time</span>
               </div>
               <span className="text-xl font-bold">{formatTime(stats.bestTime || 0)}</span>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 text-slate-700 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-slate-400" />
+                <span className="font-semibold">Average Time</span>
+              </div>
+              <span className="text-xl font-bold">{avgTime !== null ? formatTime(avgTime) : '--:--'}</span>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 text-slate-700 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-slate-400" />
+                <span className="font-semibold">Median Time</span>
+              </div>
+              <span className="text-xl font-bold">{medTime !== null ? formatTime(medTime) : '--:--'}</span>
             </div>
           </div>
         </div>

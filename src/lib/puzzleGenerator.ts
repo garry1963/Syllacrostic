@@ -29,13 +29,13 @@ export async function generatePuzzle(
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
   let difficultyPrompt = "";
-  if (difficulty === 'Easy') difficultyPrompt = "Use simpler, shorter words (1-3 syllables). 4-5 clues total.";
+  if (difficulty === 'Easy') difficultyPrompt = "Use simpler, shorter words (1-3 syllables). 5-6 clues total.";
   else if (difficulty === 'Hard') difficultyPrompt = "Use complex, longer words (3-5 syllables). 7-9 clues total. Include challenging vocabulary.";
-  else difficultyPrompt = "Use standard words (2-4 syllables). 5-7 clues total.";
+  else difficultyPrompt = "Use standard words (2-4 syllables). 6-8 clues total.";
 
   const prompt = `Create a Syllacrostic puzzle.
   Theme: ${theme}
-  ${hiddenMessage ? `Hidden Message: ${hiddenMessage.toUpperCase()}` : `Hidden Message: Choose a random inspirational 2-3 word phrase (10-15 letters total).`}
+  ${hiddenMessage ? `Hidden Message: ${hiddenMessage.toUpperCase()}` : `Hidden Message: Choose a random 1-2 word phrase (5-8 letters total).`}
   Difficulty: ${difficulty} - ${difficultyPrompt}
   ${instructions ? `Additional Instructions:\n${instructions}` : ''}
 
