@@ -68,11 +68,9 @@ export default function App() {
 
   // Check API Connection
   useEffect(() => {
-    if (settings.showApiStatus) {
-      setApiState('checking');
-      checkApiConnection().then(setApiState);
-    }
-  }, [settings.showApiStatus]);
+    setApiState('checking');
+    checkApiConnection().then(setApiState);
+  }, []);
 
   // Timer logic
   useEffect(() => {

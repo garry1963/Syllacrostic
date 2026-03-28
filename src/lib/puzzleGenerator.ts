@@ -10,8 +10,7 @@ export async function checkApiConnection(): Promise<'connected' | 'error' | 'mis
     // A very lightweight call to verify the key is valid and network is up
     await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "ping",
-      config: { maxOutputTokens: 1 }
+      contents: "Hi",
     });
     return 'connected';
   } catch (error) {
