@@ -176,8 +176,32 @@ export function PuzzleBuilder({ onPuzzleCreated, onCancel, wordPool, setWordPool
       return;
     }
     
-    setWordPool([...wordPool, ...newItems]);
-    setBulkSuccess(`Successfully added ${newItems.length} pairs to the word pool!`);
+    const deduplicatedNewItems: { clue: string; syllables: string }[] = [];
+    const seen = new Set<string>();
+    
+    for (const item of wordPool) {
+      seen.add(`${item.clue.toLowerCase().trim()}|${item.syllables.toUpperCase().trim()}`);
+    }
+
+    let duplicateCount = 0;
+
+    for (const item of newItems) {
+      const key = `${item.clue.toLowerCase().trim()}|${item.syllables.toUpperCase().trim()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduplicatedNewItems.push(item);
+      } else {
+        duplicateCount++;
+      }
+    }
+
+    if (deduplicatedNewItems.length === 0) {
+      setBulkError(`No new valid clue/syllable pairs found (${duplicateCount} duplicates skipped).`);
+      return;
+    }
+    
+    setWordPool([...wordPool, ...deduplicatedNewItems]);
+    setBulkSuccess(`Successfully added ${deduplicatedNewItems.length} new pairs to the word pool!${duplicateCount > 0 ? ` (${duplicateCount} duplicates skipped)` : ''}`);
     setBulkText('');
   };
 

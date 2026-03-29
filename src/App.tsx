@@ -523,28 +523,48 @@ export default function App() {
       return;
     }
     
+    const difficulties = ['Easy', 'Medium', 'Hard'];
+    const randomDifficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
+    
+    let minClues = 5;
+    let maxClues = 6;
+    let minHiddenLen = 4;
+    let maxHiddenLen = 6;
+    
+    if (randomDifficulty === 'Easy') {
+      minClues = 4;
+      maxClues = 5;
+      minHiddenLen = 4;
+      maxHiddenLen = 5;
+    } else if (randomDifficulty === 'Hard') {
+      minClues = 6;
+      maxClues = 8;
+      minHiddenLen = 6;
+      maxHiddenLen = 8;
+    }
+    
     let selected: {clue: string, syllables: string}[] = [];
     let finalHiddenMessage = "";
     
     // Try to create a puzzle with a hidden message
     const validHiddenWords = wordPool.filter(p => {
       const ans = p.syllables.replace(/[^a-zA-Z]/g, '');
-      return ans.length >= 4 && ans.length <= 8;
+      return ans.length >= minHiddenLen && ans.length <= maxHiddenLen;
     });
     
     let success = false;
     
     if (validHiddenWords.length > 0) {
-      for (let attempt = 0; attempt < 20; attempt++) {
+      for (let attempt = 0; attempt < 30; attempt++) {
         const hiddenItem = validHiddenWords[Math.floor(Math.random() * validHiddenWords.length)];
         const candidateMessage = hiddenItem.syllables.replace(/[^a-zA-Z]/g, '').toUpperCase();
         const messageChars = candidateMessage.split('');
         
         let tempSelected: {clue: string, syllables: string}[] = [];
         let charIndex = 0;
-        let availablePool = shuffle(wordPool.filter(p => p.clue !== hiddenItem.clue));
+        let availablePool: {clue: string, syllables: string}[] = shuffle(wordPool.filter(p => p.clue !== hiddenItem.clue));
         
-        while (tempSelected.length < 7 && charIndex < messageChars.length && availablePool.length > 0) {
+        while (tempSelected.length < maxClues && charIndex < messageChars.length && availablePool.length > 0) {
           let bestWordIdx = -1;
           let maxMatches = 0;
           
@@ -575,7 +595,7 @@ export default function App() {
         }
         
         if (charIndex === messageChars.length) {
-          while (tempSelected.length < 5 && availablePool.length > 0) {
+          while (tempSelected.length < minClues && availablePool.length > 0) {
             tempSelected.push(availablePool.pop()!);
           }
           selected = tempSelected;
@@ -588,7 +608,7 @@ export default function App() {
     
     if (!success) {
       // Fallback to random without hidden message
-      const count = Math.min(wordPool.length, Math.floor(Math.random() * 3) + 5);
+      const count = Math.min(wordPool.length, Math.floor(Math.random() * (maxClues - minClues + 1)) + minClues);
       const shuffled = shuffle([...wordPool]);
       selected = shuffled.slice(0, count);
       finalHiddenMessage = "";
@@ -625,7 +645,7 @@ export default function App() {
 
     const puzzle: PuzzleDef = {
       id: puzzleId,
-      theme: finalHiddenMessage ? "Offline Random Pool (Hidden Word)" : "Offline Random Pool",
+      theme: finalHiddenMessage ? `Offline Pool (${randomDifficulty})` : `Offline Pool (${randomDifficulty})`,
       hiddenMessage: finalHiddenMessage,
       clues: formattedClues
     };
@@ -930,12 +950,13 @@ export default function App() {
               </div>
             </DndContext>
 
-            {/* Hidden Message Section */}
-            <div className="mt-12">
-              <h2 className="text-center text-lg font-bold text-slate-700 mb-2">Hidden Message</h2>
-              <p className="text-center text-sm text-slate-500 mb-4">First letters of numbered syllables reveal the quote</p>
-              {renderHiddenMessage()}
-            </div>
+            {activePuzzle.hiddenMessage && (
+              <div className="mt-12">
+                <h2 className="text-center text-lg font-bold text-slate-700 mb-2">Hidden Message</h2>
+                <p className="text-center text-sm text-slate-500 mb-4">First letters of numbered syllables reveal the quote</p>
+                {renderHiddenMessage()}
+              </div>
+            )}
           </>
         )}
       </main>
