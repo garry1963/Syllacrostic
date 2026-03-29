@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Palette, Gauge, Wifi } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, Palette, Gauge, Wifi, Download, Upload, Check, AlertCircle } from 'lucide-react';
 
 export interface Settings {
   theme: string;
@@ -13,9 +13,17 @@ interface Props {
   settings: Settings;
   onUpdate: (newSettings: Settings) => void;
   onClose: () => void;
+  wordPool: { clue: string; syllables: string }[];
+  setWordPool: (pool: { clue: string; syllables: string }[]) => void;
+  stats: any;
+  setStats: (stats: any) => void;
 }
 
-export function SettingsModal({ settings, onUpdate, onClose }: Props) {
+export function SettingsModal({ settings, onUpdate, onClose, wordPool, setWordPool, stats, setStats }: Props) {
+  const [backupStatus, setBackupStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [backupMessage, setBackupMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const themes = [
     { id: 'theme-blue', name: 'Ocean Blue', color: 'bg-blue-500' },
     { id: 'theme-emerald', name: 'Emerald Forest', color: 'bg-emerald-500' },
@@ -25,10 +33,70 @@ export function SettingsModal({ settings, onUpdate, onClose }: Props) {
 
   const difficulties = ['Easy', 'Medium', 'Hard'];
 
+  const handleExport = () => {
+    try {
+      const data = {
+        wordPool,
+        stats,
+        version: 1,
+        exportDate: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `syllacrostic-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      setBackupStatus('success');
+      setBackupMessage('Backup downloaded successfully!');
+      setTimeout(() => setBackupStatus('idle'), 3000);
+    } catch (err) {
+      setBackupStatus('error');
+      setBackupMessage('Failed to create backup.');
+      setTimeout(() => setBackupStatus('idle'), 3000);
+    }
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const data = JSON.parse(content);
+        
+        if (data.wordPool && Array.isArray(data.wordPool)) {
+          setWordPool(data.wordPool);
+        }
+        if (data.stats && typeof data.stats === 'object') {
+          setStats(data.stats);
+        }
+        
+        setBackupStatus('success');
+        setBackupMessage('Backup restored successfully!');
+        setTimeout(() => setBackupStatus('idle'), 3000);
+      } catch (err) {
+        setBackupStatus('error');
+        setBackupMessage('Invalid backup file format.');
+        setTimeout(() => setBackupStatus('idle'), 3000);
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             Settings
           </h2>
@@ -37,7 +105,7 @@ export function SettingsModal({ settings, onUpdate, onClose }: Props) {
           </button>
         </div>
         
-        <div className="p-6 space-y-8">
+        <div className="p-6 space-y-8 overflow-y-auto">
           {/* Theme Selection */}
           <div>
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -162,6 +230,55 @@ export function SettingsModal({ settings, onUpdate, onClose }: Props) {
                 onChange={(e) => onUpdate({ ...settings, showApiStatus: e.target.checked })}
               />
             </label>
+          </div>
+          {/* Backup and Restore */}
+          <div>
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Download className="w-4 h-4" /> Backup & Restore
+            </h3>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
+              <div className="mb-2">
+                <span className="font-bold text-slate-700 block">Data Management</span>
+                <span className="text-xs text-slate-500">Backup your offline word pool and statistics to a file, or restore them from a previous backup.</span>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={handleExport}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Backup
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Restore
+                </button>
+                <input 
+                  type="file" 
+                  accept=".json" 
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleImport}
+                />
+              </div>
+
+              {backupStatus === 'success' && (
+                <div className="p-2 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700 text-xs font-medium">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <p>{backupMessage}</p>
+                </div>
+              )}
+              {backupStatus === 'error' && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-xs font-medium">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <p>{backupMessage}</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         

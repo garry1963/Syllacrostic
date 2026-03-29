@@ -33,6 +33,12 @@ export default function App() {
     bestTime: null as number | null,
     lastPlayedDate: null as string | null,
     completionTimes: [] as number[],
+    totalScore: 0,
+    bestScores: {
+      Easy: 0,
+      Medium: 0,
+      Hard: 0
+    } as Record<string, number>
   });
 
   const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
@@ -329,6 +335,17 @@ export default function App() {
         }
       }
 
+      let newBestScores = { ...(prev.bestScores || { Easy: 0, Medium: 0, Hard: 0 }) };
+      const clueCount = activePuzzle.clues.length;
+      let diffKey = '';
+      if (clueCount === 4) diffKey = 'Easy';
+      else if (clueCount === 6) diffKey = 'Medium';
+      else if (clueCount === 9) diffKey = 'Hard';
+      
+      if (diffKey) {
+        newBestScores[diffKey] = Math.max(newBestScores[diffKey] || 0, currentScore);
+      }
+
       return {
         ...prev,
         played: prev.played + 1,
@@ -338,6 +355,8 @@ export default function App() {
         bestTime: prev.bestTime === null ? timeElapsed : Math.min(prev.bestTime, timeElapsed),
         lastPlayedDate: isDaily ? today : prev.lastPlayedDate,
         completionTimes: [...(prev.completionTimes || []), timeElapsed],
+        totalScore: (prev.totalScore || 0) + currentScore,
+        bestScores: newBestScores,
       };
     });
   }
@@ -518,29 +537,30 @@ export default function App() {
   };
 
   const loadFromPool = () => {
-    if (wordPool.length < 5) {
-      alert("Your word pool needs at least 5 clue/syllable pairs to generate a puzzle. Add more in the Custom Builder.");
+    if (wordPool.length < 9) {
+      alert("Your word pool needs at least 9 clue/syllable pairs to generate a puzzle. Add more in the Custom Builder.");
       return;
     }
     
     const difficulties = ['Easy', 'Medium', 'Hard'];
     const randomDifficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
     
-    let minClues = 5;
-    let maxClues = 6;
+    let targetClues = 6;
     let minHiddenLen = 4;
     let maxHiddenLen = 6;
     
     if (randomDifficulty === 'Easy') {
-      minClues = 4;
-      maxClues = 5;
+      targetClues = 4;
       minHiddenLen = 4;
-      maxHiddenLen = 5;
+      maxHiddenLen = 4;
     } else if (randomDifficulty === 'Hard') {
-      minClues = 6;
-      maxClues = 8;
+      targetClues = 9;
       minHiddenLen = 6;
-      maxHiddenLen = 8;
+      maxHiddenLen = 9;
+    } else {
+      targetClues = 6;
+      minHiddenLen = 5;
+      maxHiddenLen = 6;
     }
     
     let selected: {clue: string, syllables: string}[] = [];
@@ -564,7 +584,7 @@ export default function App() {
         let charIndex = 0;
         let availablePool: {clue: string, syllables: string}[] = shuffle(wordPool.filter(p => p.clue !== hiddenItem.clue));
         
-        while (tempSelected.length < maxClues && charIndex < messageChars.length && availablePool.length > 0) {
+        while (tempSelected.length < targetClues && charIndex < messageChars.length && availablePool.length > 0) {
           let bestWordIdx = -1;
           let maxMatches = 0;
           
@@ -595,20 +615,22 @@ export default function App() {
         }
         
         if (charIndex === messageChars.length) {
-          while (tempSelected.length < minClues && availablePool.length > 0) {
+          while (tempSelected.length < targetClues && availablePool.length > 0) {
             tempSelected.push(availablePool.pop()!);
           }
-          selected = tempSelected;
-          finalHiddenMessage = candidateMessage;
-          success = true;
-          break;
+          if (tempSelected.length === targetClues) {
+            selected = tempSelected;
+            finalHiddenMessage = candidateMessage;
+            success = true;
+            break;
+          }
         }
       }
     }
     
     if (!success) {
       // Fallback to random without hidden message
-      const count = Math.min(wordPool.length, Math.floor(Math.random() * (maxClues - minClues + 1)) + minClues);
+      const count = Math.min(wordPool.length, targetClues);
       const shuffled = shuffle([...wordPool]);
       selected = shuffled.slice(0, count);
       finalHiddenMessage = "";
@@ -710,6 +732,10 @@ export default function App() {
                 <div className="flex flex-col items-end">
                   <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">Time</span>
                   <span className="text-lg sm:text-xl font-bold text-slate-700 font-mono">{formatTime(timeElapsed)}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">Total</span>
+                  <span className="text-lg sm:text-xl font-bold text-primary-600">{stats.totalScore || 0}</span>
                 </div>
                 <div className="flex flex-col items-end">
                   <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">Score</span>
@@ -821,6 +847,7 @@ export default function App() {
                 <p className="text-green-700">
                   {isMessageGuessed ? "You guessed the hidden message!" : "You revealed the hidden message!"} 
                   <br />Score: {currentScore} | Time: {formatTime(timeElapsed)}
+                  <br />Total Points: {stats.totalScore || 0}
                 </p>
               </div>
             )}
@@ -966,6 +993,10 @@ export default function App() {
           settings={settings} 
           onUpdate={setSettings} 
           onClose={() => setShowSettings(false)} 
+          wordPool={wordPool}
+          setWordPool={setWordPool}
+          stats={stats}
+          setStats={setStats}
         />
       )}
 

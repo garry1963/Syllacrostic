@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Trophy, Flame, Clock, Target } from 'lucide-react';
+import { X, Trophy, Flame, Clock, Target, Star } from 'lucide-react';
 
 interface Stats {
   played: number;
@@ -8,6 +8,8 @@ interface Stats {
   maxStreak: number;
   bestTime: number | null;
   completionTimes?: number[];
+  totalScore?: number;
+  bestScores?: Record<string, number>;
 }
 
 interface Props {
@@ -104,6 +106,29 @@ export function StatsModal({ stats, onClose }: Props) {
               </div>
               <span className="text-xl font-bold">{medTime !== null ? formatTime(medTime) : '--:--'}</span>
             </div>
+
+            {stats.bestScores && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Star className="w-4 h-4" />
+                  Best Scores
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
+                    <span className="block text-xs font-semibold text-green-700 uppercase mb-1">Easy</span>
+                    <span className="text-lg font-bold text-green-800">{stats.bestScores.Easy || 0}</span>
+                  </div>
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                    <span className="block text-xs font-semibold text-blue-700 uppercase mb-1">Medium</span>
+                    <span className="text-lg font-bold text-blue-800">{stats.bestScores.Medium || 0}</span>
+                  </div>
+                  <div className="bg-purple-50 p-3 rounded-lg border border-purple-100 text-center">
+                    <span className="block text-xs font-semibold text-purple-700 uppercase mb-1">Hard</span>
+                    <span className="text-lg font-bold text-purple-800">{stats.bestScores.Hard || 0}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
