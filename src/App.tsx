@@ -38,7 +38,17 @@ export default function App() {
       Easy: 0,
       Medium: 0,
       Hard: 0
-    } as Record<string, number>
+    } as Record<string, number>,
+    bestTimesByDifficulty: {
+      Easy: null as number | null,
+      Medium: null as number | null,
+      Hard: null as number | null
+    } as Record<string, number | null>,
+    completionTimesByDifficulty: {
+      Easy: [] as number[],
+      Medium: [] as number[],
+      Hard: [] as number[]
+    } as Record<string, number[]>
   });
 
   const [activePuzzle, setActivePuzzle] = useLocalStorage<PuzzleDef>('syllacrostic-puzzle', PUZZLE);
@@ -336,6 +346,8 @@ export default function App() {
       }
 
       let newBestScores = { ...(prev.bestScores || { Easy: 0, Medium: 0, Hard: 0 }) };
+      let newBestTimesByDifficulty = { ...(prev.bestTimesByDifficulty || { Easy: null, Medium: null, Hard: null }) };
+      let newCompletionTimesByDifficulty = { ...(prev.completionTimesByDifficulty || { Easy: [], Medium: [], Hard: [] }) };
       const clueCount = activePuzzle.clues.length;
       let diffKey = '';
       if (clueCount === 4) diffKey = 'Easy';
@@ -344,6 +356,11 @@ export default function App() {
       
       if (diffKey) {
         newBestScores[diffKey] = Math.max(newBestScores[diffKey] || 0, currentScore);
+        
+        const prevBestTime = newBestTimesByDifficulty[diffKey];
+        newBestTimesByDifficulty[diffKey] = prevBestTime === null ? timeElapsed : Math.min(prevBestTime, timeElapsed);
+        
+        newCompletionTimesByDifficulty[diffKey] = [...(newCompletionTimesByDifficulty[diffKey] || []), timeElapsed];
       }
 
       return {
@@ -357,6 +374,8 @@ export default function App() {
         completionTimes: [...(prev.completionTimes || []), timeElapsed],
         totalScore: (prev.totalScore || 0) + currentScore,
         bestScores: newBestScores,
+        bestTimesByDifficulty: newBestTimesByDifficulty,
+        completionTimesByDifficulty: newCompletionTimesByDifficulty,
       };
     });
   }
