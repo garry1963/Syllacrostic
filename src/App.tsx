@@ -462,105 +462,7 @@ export default function App() {
     });
   }, [setPuzzleDb]);
 
-  // Preload Daily Challenge
-  useEffect(() => {
-    if (apiState !== 'connected') return;
-    const today = new Date().toDateString();
-    const dailyTheme = `Daily Challenge: ${today}`;
-    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
-    
-    if (!existingDaily) {
-      generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty)
-        .then(puzzle => saveToDb(puzzle))
-        .catch(err => console.error("Background daily generation failed:", err));
-    }
-  }, [apiState, puzzleDb, settings.difficulty, saveToDb]);
-
-  // Preload Random Puzzle
-  useEffect(() => {
-    if (apiState !== 'connected' || preloadedRandom || isPreloadingRandom) return;
-    
-    setIsPreloadingRandom(true);
-    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty)
-      .then(puzzle => setPreloadedRandom(puzzle))
-      .catch(err => console.error("Background random generation failed:", err))
-      .finally(() => setIsPreloadingRandom(false));
-  }, [apiState, preloadedRandom, isPreloadingRandom, settings.difficulty]);
-
-  // Clear preloaded random if difficulty changes
-  useEffect(() => {
-    setPreloadedRandom(null);
-  }, [settings.difficulty]);
-
-  const loadDailyChallenge = async () => {
-    const today = new Date().toDateString();
-    const dailyTheme = `Daily Challenge: ${today}`;
-    
-    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
-    if (existingDaily) {
-      setActivePuzzle(existingDaily);
-      setIsDaily(true);
-      setMode('play');
-      return;
-    }
-
-    setIsGeneratingDaily(true);
-    try {
-      const puzzle = await generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty);
-      saveToDb(puzzle);
-      setActivePuzzle(puzzle);
-      setIsDaily(true);
-      setMode('play');
-    } catch (err) {
-      console.error("Failed to load daily challenge", err);
-      alert("Failed to load daily challenge. Please try again.");
-    } finally {
-      setIsGeneratingDaily(false);
-    }
-  };
-
-  const loadRandomPuzzle = async () => {
-    if (preloadedRandom) {
-      saveToDb(preloadedRandom);
-      setActivePuzzle(preloadedRandom);
-      setIsDaily(false);
-      setMode('play');
-      setPreloadedRandom(null); // Trigger next preload
-      return;
-    }
-
-    setIsGeneratingRandom(true);
-    try {
-      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty);
-      saveToDb(puzzle);
-      setActivePuzzle(puzzle);
-      setIsDaily(false);
-      setMode('play');
-    } catch (err) {
-      console.error("Failed to generate random puzzle", err);
-      alert("Failed to generate random puzzle. Please try again.");
-    } finally {
-      setIsGeneratingRandom(false);
-    }
-  };
-
-  const loadRandomFromLibrary = () => {
-    if (puzzleDb.length === 0) {
-      alert("Your library is empty!");
-      return;
-    }
-    const randomPuzzle = puzzleDb[Math.floor(Math.random() * puzzleDb.length)];
-    setActivePuzzle(randomPuzzle);
-    setIsDaily(false);
-    setMode('play');
-  };
-
-  const loadFromPool = () => {
-    if (wordPool.length < 9) {
-      alert("Your word pool needs at least 9 clue/syllable pairs to generate a puzzle. Add more in the Custom Builder.");
-      return;
-    }
-    
+  const generateFromPool = useCallback((themePrefix: string): PuzzleDef => {
     const difficulties = ['Easy', 'Medium', 'Hard'];
     const randomDifficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
     
@@ -684,13 +586,136 @@ export default function App() {
       }
     }
 
-    const puzzle: PuzzleDef = {
+    return {
       id: puzzleId,
-      theme: finalHiddenMessage ? `Offline Pool (${randomDifficulty})` : `Offline Pool (${randomDifficulty})`,
+      theme: `${themePrefix} (${randomDifficulty})`,
       hiddenMessage: finalHiddenMessage,
       clues: formattedClues
     };
+  }, [wordPool]);
 
+  // Preload Daily Challenge
+  useEffect(() => {
+    if (apiState === 'checking') return;
+    const today = new Date().toDateString();
+    const dailyTheme = `Daily Challenge: ${today}`;
+    const existingDaily = puzzleDb.find(p => p.theme.startsWith(dailyTheme));
+    
+    if (!existingDaily) {
+      if (apiState === 'connected') {
+        generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty)
+          .then(puzzle => saveToDb(puzzle))
+          .catch(err => {
+            console.error("Background daily generation failed:", err);
+            if (wordPool.length >= 9) {
+              saveToDb(generateFromPool(dailyTheme));
+            }
+          });
+      } else if (apiState === 'error' || apiState === 'missing_key') {
+        if (wordPool.length >= 9) {
+          saveToDb(generateFromPool(dailyTheme));
+        }
+      }
+    }
+  }, [apiState, puzzleDb, settings.difficulty, saveToDb, wordPool, generateFromPool]);
+
+  // Preload Random Puzzle
+  useEffect(() => {
+    if (apiState !== 'connected' || preloadedRandom || isPreloadingRandom) return;
+    
+    setIsPreloadingRandom(true);
+    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty)
+      .then(puzzle => setPreloadedRandom(puzzle))
+      .catch(err => console.error("Background random generation failed:", err))
+      .finally(() => setIsPreloadingRandom(false));
+  }, [apiState, preloadedRandom, isPreloadingRandom, settings.difficulty]);
+
+  // Clear preloaded random if difficulty changes
+  useEffect(() => {
+    setPreloadedRandom(null);
+  }, [settings.difficulty]);
+
+  const loadDailyChallenge = async () => {
+    const today = new Date().toDateString();
+    const dailyTheme = `Daily Challenge: ${today}`;
+    
+    const existingDaily = puzzleDb.find(p => p.theme.startsWith(dailyTheme));
+    if (existingDaily) {
+      setActivePuzzle(existingDaily);
+      setIsDaily(true);
+      setMode('play');
+      return;
+    }
+
+    setIsGeneratingDaily(true);
+    try {
+      if (apiState !== 'connected') {
+        throw new Error("API not connected");
+      }
+      const puzzle = await generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty);
+      saveToDb(puzzle);
+      setActivePuzzle(puzzle);
+      setIsDaily(true);
+      setMode('play');
+    } catch (err) {
+      console.error("Failed to load daily challenge", err);
+      if (wordPool.length >= 9) {
+        const puzzle = generateFromPool(dailyTheme);
+        saveToDb(puzzle);
+        setActivePuzzle(puzzle);
+        setIsDaily(true);
+        setMode('play');
+      } else {
+        alert("Failed to load daily challenge. Please try again.");
+      }
+    } finally {
+      setIsGeneratingDaily(false);
+    }
+  };
+
+  const loadRandomPuzzle = async () => {
+    if (preloadedRandom) {
+      saveToDb(preloadedRandom);
+      setActivePuzzle(preloadedRandom);
+      setIsDaily(false);
+      setMode('play');
+      setPreloadedRandom(null); // Trigger next preload
+      return;
+    }
+
+    setIsGeneratingRandom(true);
+    try {
+      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty);
+      saveToDb(puzzle);
+      setActivePuzzle(puzzle);
+      setIsDaily(false);
+      setMode('play');
+    } catch (err) {
+      console.error("Failed to generate random puzzle", err);
+      alert("Failed to generate random puzzle. Please try again.");
+    } finally {
+      setIsGeneratingRandom(false);
+    }
+  };
+
+  const loadRandomFromLibrary = () => {
+    if (puzzleDb.length === 0) {
+      alert("Your library is empty!");
+      return;
+    }
+    const randomPuzzle = puzzleDb[Math.floor(Math.random() * puzzleDb.length)];
+    setActivePuzzle(randomPuzzle);
+    setIsDaily(false);
+    setMode('play');
+  };
+
+  const loadFromPool = () => {
+    if (wordPool.length < 9) {
+      alert("Your word pool needs at least 9 clue/syllable pairs to generate a puzzle. Add more in the Custom Builder.");
+      return;
+    }
+    
+    const puzzle = generateFromPool("Offline Pool");
     saveToDb(puzzle);
     setActivePuzzle(puzzle);
     setIsDaily(false);
