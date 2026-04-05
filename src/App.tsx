@@ -4,15 +4,17 @@ import { PUZZLE, SyllableDef, PuzzleDef } from './data';
 import { DroppableBank } from './components/DroppableBank';
 import { DroppableSlot } from './components/DroppableSlot';
 import { DraggableSyllable } from './components/DraggableSyllable';
-import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices, Flame, Database } from 'lucide-react';
+import { Lightbulb, RotateCcw, Trophy, Wand2, Settings, BarChart2, Calendar, Play, MessageSquareText, Wifi, WifiOff, Loader2, Library, Dices, Flame, Database, CheckSquare } from 'lucide-react';
 import { cn } from './lib/utils';
 import { PuzzleBuilder } from './components/PuzzleBuilder';
 import { SettingsModal, Settings as AppSettings } from './components/SettingsModal';
 import { StatsModal } from './components/StatsModal';
 import { GuessModal } from './components/GuessModal';
 import { PuzzleLibraryModal } from './components/PuzzleLibraryModal';
+import { QuestsModal } from './components/QuestsModal';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { generatePuzzle, checkApiConnection } from './lib/puzzleGenerator';
+import { Quest, QuestAction, DAILY_QUEST_TEMPLATES, WEEKLY_QUEST_TEMPLATES, getCurrentMonday, getRandomQuests } from './lib/quests';
 
 function shuffle<T>(array: T[]): T[] {
   const newArray = [...array];
@@ -66,7 +68,82 @@ export default function App() {
   const [showStats, setShowStats] = useState(false);
   const [showGuessModal, setShowGuessModal] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showQuests, setShowQuests] = useState(false);
   const [guessError, setGuessError] = useState('');
+
+  const [questsData, setQuestsData] = useLocalStorage('syllacrostic-quests', {
+    daily: [] as Quest[],
+    weekly: [] as Quest[],
+    lastDailyReset: null as string | null,
+    lastWeeklyReset: null as string | null
+  });
+
+  // Quest reset logic
+  useEffect(() => {
+    const today = new Date().toDateString();
+    const currentMonday = getCurrentMonday().toDateString();
+    
+    let needsUpdate = false;
+    let newDaily = [...questsData.daily];
+    let newWeekly = [...questsData.weekly];
+    let newLastDaily = questsData.lastDailyReset;
+    let newLastWeekly = questsData.lastWeeklyReset;
+
+    if (questsData.lastDailyReset !== today) {
+      newDaily = getRandomQuests(DAILY_QUEST_TEMPLATES, 3);
+      newLastDaily = today;
+      needsUpdate = true;
+    }
+
+    if (questsData.lastWeeklyReset !== currentMonday) {
+      newWeekly = getRandomQuests(WEEKLY_QUEST_TEMPLATES, 4);
+      newLastWeekly = currentMonday;
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      setQuestsData({
+        daily: newDaily,
+        weekly: newWeekly,
+        lastDailyReset: newLastDaily,
+        lastWeeklyReset: newLastWeekly
+      });
+    }
+  }, [questsData.lastDailyReset, questsData.lastWeeklyReset, setQuestsData]);
+
+  const updateQuests = useCallback((action: QuestAction, amount: number = 1) => {
+    setQuestsData(prev => {
+      let pointsEarned = 0;
+      let updated = false;
+
+      const updateList = (list: Quest[]) => {
+        return list.map(q => {
+          if (!q.completed && q.action === action) {
+            const newProgress = Math.min(q.target, q.progress + amount);
+            const completed = newProgress >= q.target;
+            if (completed && !q.completed) {
+              pointsEarned += q.reward;
+            }
+            updated = true;
+            return { ...q, progress: newProgress, completed };
+          }
+          return q;
+        });
+      };
+
+      const newDaily = updateList(prev.daily);
+      const newWeekly = updateList(prev.weekly);
+
+      if (pointsEarned > 0) {
+        setStats(s => ({ ...s, totalScore: (s.totalScore || 0) + pointsEarned }));
+      }
+
+      if (updated) {
+        return { ...prev, daily: newDaily, weekly: newWeekly };
+      }
+      return prev;
+    });
+  }, [setQuestsData, setStats]);
 
   const [timeElapsed, setTimeElapsed] = useLocalStorage('syllacrostic-time', 0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -140,10 +217,11 @@ export default function App() {
       setTimeElapsed(0);
       setIsMessageGuessed(false);
       setIsTimerRunning(true);
+      updateQuests('play');
     } else {
       setIsTimerRunning(!isWon);
     }
-  }, [allSyllables, activePuzzle.id]);
+  }, [allSyllables, activePuzzle.id, updateQuests]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -284,7 +362,8 @@ export default function App() {
     setTimeElapsed(0);
     setIsTimerRunning(true);
     setIsMessageGuessed(false);
-  }, [allSyllables, setLocations, setHintsUsed, setIsWon, setTimeElapsed, setIsMessageGuessed]);
+    updateQuests('play');
+  }, [allSyllables, setLocations, setHintsUsed, setIsWon, setTimeElapsed, setIsMessageGuessed, updateQuests]);
 
   // Calculate score and check win condition
   let correctSyllablesCount = 0;
@@ -325,6 +404,13 @@ export default function App() {
   if ((allCluesCorrect || isMessageGuessed) && !isWon) {
     setIsWon(true);
     setIsTimerRunning(false);
+    
+    updateQuests('win');
+    if (isDaily) updateQuests('daily_challenge');
+    if (hintsUsed === 0) updateQuests('no_hints');
+    if (activePuzzle.clues.length === 4) updateQuests('win_easy');
+    if (activePuzzle.clues.length === 6) updateQuests('win_medium');
+    if (activePuzzle.clues.length === 9) updateQuests('win_hard');
     
     // Update stats
     setStats(prev => {
@@ -388,6 +474,7 @@ export default function App() {
       setIsMessageGuessed(true);
       setShowGuessModal(false);
       setGuessError('');
+      updateQuests('guess_message');
     } else {
       setGuessError('Incorrect guess. Keep trying!');
     }
@@ -790,6 +877,16 @@ export default function App() {
             
             <div className="flex gap-2">
               <button 
+                onClick={() => setShowQuests(true)}
+                className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors relative"
+                title="Quests & Challenges"
+              >
+                <CheckSquare className="w-5 h-5" />
+                {questsData.daily.some(q => q.completed && !q.completed) && ( // We auto collect, so no uncollected state, but we can show a dot if there are incomplete quests
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-primary-500 rounded-full"></span>
+                )}
+              </button>
+              <button 
                 onClick={() => setShowStats(true)}
                 className="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
                 title="Statistics"
@@ -1041,6 +1138,14 @@ export default function App() {
           setWordPool={setWordPool}
           stats={stats}
           setStats={setStats}
+        />
+      )}
+
+      {showQuests && (
+        <QuestsModal 
+          dailyQuests={questsData.daily}
+          weeklyQuests={questsData.weekly}
+          onClose={() => setShowQuests(false)} 
         />
       )}
 
