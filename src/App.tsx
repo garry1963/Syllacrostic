@@ -152,6 +152,7 @@ export default function App() {
   const [apiState, setApiState] = useState<'checking' | 'connected' | 'error' | 'missing_key'>('checking');
   const [isPreloadingRandom, setIsPreloadingRandom] = useState(false);
   const [preloadedRandom, setPreloadedRandom] = useState<PuzzleDef | null>(null);
+  const [randomDifficulty, setRandomDifficulty] = useState(settings.difficulty);
 
   const [selectedSyllable, setSelectedSyllable] = useState<string | null>(null);
 
@@ -480,11 +481,40 @@ export default function App() {
     }
   };
 
+  const isHiddenMessageFullyRevealed = useMemo(() => {
+    let correctCount = 0;
+    let totalCount = 0;
+    let charIndex = 1;
+    
+    for (const char of activePuzzle.hiddenMessage.split('')) {
+      if (char === ' ') continue;
+      
+      totalCount++;
+      const currentIndex = charIndex++;
+      
+      for (const clue of activePuzzle.clues) {
+        for (let sIdx = 0; sIdx < clue.syllables.length; sIdx++) {
+          if (clue.syllables[sIdx].messageIndex === currentIndex) {
+            const slotId = `slot_${clue.id}_${sIdx}`;
+            const syllableIdInSlot = Object.keys(locations).find(id => locations[id] === slotId);
+            if (syllableIdInSlot) {
+              const text = allSyllables.find(s => s.id === syllableIdInSlot)?.text;
+              if (text && text === clue.syllables[sIdx].text) {
+                correctCount++;
+              }
+            }
+          }
+        }
+      }
+    }
+    return totalCount > 0 && correctCount === totalCount;
+  }, [activePuzzle, locations, allSyllables]);
+
   const renderHiddenMessage = () => {
     let charIndex = 1;
     return (
       <div className="relative flex flex-wrap gap-2 justify-center mt-8 p-6 bg-slate-800 rounded-xl shadow-inner">
-        {!isMessageGuessed && !isWon && (
+        {!isMessageGuessed && !isWon && !isHiddenMessageFullyRevealed && (
            <button 
              onClick={() => {
                setGuessError('');
@@ -711,16 +741,16 @@ export default function App() {
     if (apiState !== 'connected' || preloadedRandom || isPreloadingRandom) return;
     
     setIsPreloadingRandom(true);
-    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty)
+    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty)
       .then(puzzle => setPreloadedRandom(puzzle))
       .catch(err => console.error("Background random generation failed:", err))
       .finally(() => setIsPreloadingRandom(false));
-  }, [apiState, preloadedRandom, isPreloadingRandom, settings.difficulty]);
+  }, [apiState, preloadedRandom, isPreloadingRandom, randomDifficulty]);
 
   // Clear preloaded random if difficulty changes
   useEffect(() => {
     setPreloadedRandom(null);
-  }, [settings.difficulty]);
+  }, [randomDifficulty]);
 
   const loadDailyChallenge = async () => {
     const today = new Date().toDateString();
@@ -761,7 +791,7 @@ export default function App() {
   };
 
   const loadRandomPuzzle = async () => {
-    if (preloadedRandom) {
+    if (preloadedRandom && preloadedRandom.theme.includes(randomDifficulty)) {
       saveToDb(preloadedRandom);
       setActivePuzzle(preloadedRandom);
       setIsDaily(false);
@@ -772,7 +802,7 @@ export default function App() {
 
     setIsGeneratingRandom(true);
     try {
-      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", settings.difficulty);
+      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty);
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
       setIsDaily(false);
@@ -935,14 +965,25 @@ export default function App() {
                   <span>{stats.currentStreak}</span>
                 </div>
               </div>
-              <button 
-                onClick={loadRandomPuzzle}
-                disabled={isGeneratingDaily || isGeneratingRandom}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all disabled:opacity-70"
-              >
-                <Dices className="w-4 h-4" />
-                {isGeneratingRandom ? 'Loading...' : 'Random Puzzle'}
-              </button>
+              <div className="flex items-center">
+                <button 
+                  onClick={loadRandomPuzzle}
+                  disabled={isGeneratingDaily || isGeneratingRandom}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 border-r-0 text-slate-700 rounded-l-lg font-medium shadow-sm hover:bg-slate-50 transition-all disabled:opacity-70"
+                >
+                  <Dices className="w-4 h-4" />
+                  {isGeneratingRandom ? 'Loading...' : 'Random Puzzle'}
+                </button>
+                <select 
+                  value={randomDifficulty}
+                  onChange={(e) => setRandomDifficulty(e.target.value)}
+                  className="px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-r-lg font-medium shadow-sm hover:bg-slate-50 transition-all outline-none h-[42px]"
+                >
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </div>
               <button 
                 onClick={loadRandomFromLibrary}
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
