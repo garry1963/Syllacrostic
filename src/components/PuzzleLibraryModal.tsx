@@ -5,11 +5,12 @@ import { PuzzleDef } from '../data';
 interface Props {
   puzzles: PuzzleDef[];
   onSelect: (puzzle: PuzzleDef) => void;
+  onEdit: (puzzle: PuzzleDef) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
 
-export function PuzzleLibraryModal({ puzzles, onSelect, onDelete, onClose }: Props) {
+export function PuzzleLibraryModal({ puzzles, onSelect, onEdit, onDelete, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
@@ -46,6 +47,13 @@ export function PuzzleLibraryModal({ puzzles, onSelect, onDelete, onClose }: Pro
                   >
                     <Play className="w-4 h-4" />
                     Play
+                  </button>
+                  <button 
+                    onClick={() => onEdit(p)} 
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Edit Puzzle"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                   </button>
                   <button 
                     onClick={() => onDelete(p.id)} 

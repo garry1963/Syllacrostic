@@ -11,6 +11,7 @@ import { SettingsModal, Settings as AppSettings } from './components/SettingsMod
 import { StatsModal } from './components/StatsModal';
 import { GuessModal } from './components/GuessModal';
 import { PuzzleLibraryModal } from './components/PuzzleLibraryModal';
+import { PuzzleEditorModal } from './components/PuzzleEditorModal';
 import { QuestsModal } from './components/QuestsModal';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { generatePuzzle, checkApiConnection } from './lib/puzzleGenerator';
@@ -63,12 +64,14 @@ export default function App() {
   const [hintsUsed, setHintsUsed] = useLocalStorage('syllacrostic-hints', 0);
   const [isWon, setIsWon] = useLocalStorage('syllacrostic-won', false);
   const [isMessageGuessed, setIsMessageGuessed] = useLocalStorage('syllacrostic-message-guessed', false);
+  const [completedPuzzles, setCompletedPuzzles] = useLocalStorage<string[]>('syllacrostic-completed-puzzles', []);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showGuessModal, setShowGuessModal] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
+  const [editingPuzzle, setEditingPuzzle] = useState<PuzzleDef | null>(null);
   const [guessError, setGuessError] = useState('');
 
   const [questsData, setQuestsData] = useLocalStorage('syllacrostic-quests', {
@@ -153,6 +156,7 @@ export default function App() {
   const [isPreloadingRandom, setIsPreloadingRandom] = useState(false);
   const [preloadedRandom, setPreloadedRandom] = useState<PuzzleDef | null>(null);
   const [randomDifficulty, setRandomDifficulty] = useState(settings.difficulty);
+  const [poolDifficulty, setPoolDifficulty] = useState(settings.difficulty);
 
   const [selectedSyllable, setSelectedSyllable] = useState<string | null>(null);
 
@@ -208,21 +212,35 @@ export default function App() {
       !currentSyllableIds.every(id => locationSyllableIds.includes(id));
 
     if (needsReset) {
-      const initialLocations: Record<string, string> = {};
-      allSyllables.forEach(s => {
-        initialLocations[s.id] = 'bank';
-      });
-      setLocations(initialLocations);
-      setHintsUsed(0);
-      setIsWon(false);
-      setTimeElapsed(0);
-      setIsMessageGuessed(false);
-      setIsTimerRunning(true);
-      updateQuests('play');
+      if (completedPuzzles.includes(activePuzzle.id)) {
+        // Auto-solve if already completed
+        const solvedLocations: Record<string, string> = {};
+        activePuzzle.clues.forEach(clue => {
+          clue.syllables.forEach((syl, i) => {
+            solvedLocations[syl.id] = `slot_${clue.id}_${i}`;
+          });
+        });
+        setLocations(solvedLocations);
+        setIsWon(true);
+        setIsTimerRunning(false);
+        setIsMessageGuessed(true); // Assume message was guessed or revealed
+      } else {
+        const initialLocations: Record<string, string> = {};
+        allSyllables.forEach(s => {
+          initialLocations[s.id] = 'bank';
+        });
+        setLocations(initialLocations);
+        setHintsUsed(0);
+        setIsWon(false);
+        setTimeElapsed(0);
+        setIsMessageGuessed(false);
+        setIsTimerRunning(true);
+        updateQuests('play');
+      }
     } else {
       setIsTimerRunning(!isWon);
     }
-  }, [allSyllables, activePuzzle.id, updateQuests]);
+  }, [allSyllables, activePuzzle.id, updateQuests, completedPuzzles]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -353,6 +371,10 @@ export default function App() {
   };
 
   const resetPuzzle = useCallback(() => {
+    if (completedPuzzles.includes(activePuzzle.id)) {
+      alert("This puzzle has already been completed and cannot be restarted.");
+      return;
+    }
     const initialLocations: Record<string, string> = {};
     allSyllables.forEach(s => {
       initialLocations[s.id] = 'bank';
@@ -364,7 +386,7 @@ export default function App() {
     setIsTimerRunning(true);
     setIsMessageGuessed(false);
     updateQuests('play');
-  }, [allSyllables, setLocations, setHintsUsed, setIsWon, setTimeElapsed, setIsMessageGuessed, updateQuests]);
+  }, [allSyllables, setLocations, setHintsUsed, setIsWon, setTimeElapsed, setIsMessageGuessed, updateQuests, completedPuzzles, activePuzzle.id]);
 
   // Calculate score and check win condition
   let correctSyllablesCount = 0;
@@ -405,6 +427,7 @@ export default function App() {
   if ((allCluesCorrect || isMessageGuessed) && !isWon) {
     setIsWon(true);
     setIsTimerRunning(false);
+    setCompletedPuzzles(prev => Array.from(new Set([...prev, activePuzzle.id])));
     
     updateQuests('win');
     if (isDaily) updateQuests('daily_challenge');
@@ -579,19 +602,18 @@ export default function App() {
     });
   }, [setPuzzleDb]);
 
-  const generateFromPool = useCallback((themePrefix: string): PuzzleDef => {
-    const difficulties = ['Easy', 'Medium', 'Hard'];
-    const randomDifficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
+  const generateFromPool = useCallback((themePrefix: string, difficulty?: string): PuzzleDef => {
+    const targetDifficulty = difficulty || settings.difficulty;
     
     let targetClues = 6;
     let minHiddenLen = 4;
     let maxHiddenLen = 6;
     
-    if (randomDifficulty === 'Easy') {
+    if (targetDifficulty === 'Easy') {
       targetClues = 4;
       minHiddenLen = 4;
       maxHiddenLen = 4;
-    } else if (randomDifficulty === 'Hard') {
+    } else if (targetDifficulty === 'Hard') {
       targetClues = 9;
       minHiddenLen = 6;
       maxHiddenLen = 9;
@@ -705,32 +727,36 @@ export default function App() {
 
     return {
       id: puzzleId,
-      theme: `${themePrefix} (${randomDifficulty})`,
+      theme: `${themePrefix} (${targetDifficulty})`,
       hiddenMessage: finalHiddenMessage,
       clues: formattedClues
     };
-  }, [wordPool]);
+  }, [wordPool, settings.difficulty]);
 
   // Preload Daily Challenge
   useEffect(() => {
     if (apiState === 'checking') return;
     const today = new Date().toDateString();
-    const dailyTheme = `Daily Challenge: ${today}`;
-    const existingDaily = puzzleDb.find(p => p.theme.startsWith(dailyTheme));
+    const dailyTheme = `Daily Challenge: ${today} (${settings.difficulty})`;
+    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
     
     if (!existingDaily) {
       if (apiState === 'connected') {
         generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty)
-          .then(puzzle => saveToDb(puzzle))
+          .then(puzzle => {
+            // Ensure the theme matches exactly
+            puzzle.theme = dailyTheme;
+            saveToDb(puzzle);
+          })
           .catch(err => {
             console.error("Background daily generation failed:", err);
             if (wordPool.length >= 9) {
-              saveToDb(generateFromPool(dailyTheme));
+              saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty));
             }
           });
       } else if (apiState === 'error' || apiState === 'missing_key') {
         if (wordPool.length >= 9) {
-          saveToDb(generateFromPool(dailyTheme));
+          saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty));
         }
       }
     }
@@ -754,9 +780,9 @@ export default function App() {
 
   const loadDailyChallenge = async () => {
     const today = new Date().toDateString();
-    const dailyTheme = `Daily Challenge: ${today}`;
+    const dailyTheme = `Daily Challenge: ${today} (${settings.difficulty})`;
     
-    const existingDaily = puzzleDb.find(p => p.theme.startsWith(dailyTheme));
+    const existingDaily = puzzleDb.find(p => p.theme === dailyTheme);
     if (existingDaily) {
       setActivePuzzle(existingDaily);
       setIsDaily(true);
@@ -770,6 +796,7 @@ export default function App() {
         throw new Error("API not connected");
       }
       const puzzle = await generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty);
+      puzzle.theme = dailyTheme; // Ensure theme matches
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
       setIsDaily(true);
@@ -777,7 +804,7 @@ export default function App() {
     } catch (err) {
       console.error("Failed to load daily challenge", err);
       if (wordPool.length >= 9) {
-        const puzzle = generateFromPool(dailyTheme);
+        const puzzle = generateFromPool(`Daily Challenge: ${today}`, settings.difficulty);
         saveToDb(puzzle);
         setActivePuzzle(puzzle);
         setIsDaily(true);
@@ -832,7 +859,7 @@ export default function App() {
       return;
     }
     
-    const puzzle = generateFromPool("Offline Pool");
+    const puzzle = generateFromPool("Offline Pool", poolDifficulty);
     saveToDb(puzzle);
     setActivePuzzle(puzzle);
     setIsDaily(false);
@@ -954,11 +981,11 @@ export default function App() {
               <div className="flex items-stretch shadow-sm rounded-lg hover:shadow-md transition-all">
                 <button 
                   onClick={loadDailyChallenge}
-                  disabled={isGeneratingDaily || isGeneratingRandom}
+                  disabled={isGeneratingDaily || isGeneratingRandom || stats.lastPlayedDate === new Date().toDateString()}
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-l-lg font-medium disabled:opacity-70"
                 >
                   <Calendar className="w-4 h-4" />
-                  {isGeneratingDaily ? 'Loading...' : 'Daily Challenge'}
+                  {stats.lastPlayedDate === new Date().toDateString() ? 'Daily Completed' : (isGeneratingDaily ? 'Loading...' : 'Daily Challenge')}
                 </button>
                 <div className="flex items-center gap-1 px-3 bg-orange-50 text-orange-600 border border-l-0 border-orange-200 rounded-r-lg font-bold" title="Daily Win Streak">
                   <Flame className="w-4 h-4 fill-orange-500" />
@@ -991,13 +1018,24 @@ export default function App() {
                 <Library className="w-4 h-4" />
                 Random from Library
               </button>
-              <button 
-                onClick={loadFromPool}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
-              >
-                <Database className="w-4 h-4" />
-                Random from Pool
-              </button>
+              <div className="flex items-center">
+                <button 
+                  onClick={loadFromPool}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 border-r-0 text-slate-700 rounded-l-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
+                >
+                  <Database className="w-4 h-4" />
+                  Random from Pool
+                </button>
+                <select 
+                  value={poolDifficulty}
+                  onChange={(e) => setPoolDifficulty(e.target.value)}
+                  className="px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-r-lg font-medium shadow-sm hover:bg-slate-50 transition-all outline-none h-[42px]"
+                >
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </div>
               <button 
                 onClick={() => setMode('build')}
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium shadow-sm hover:bg-slate-50 transition-all"
@@ -1214,6 +1252,10 @@ export default function App() {
             setMode('play');
             setShowLibrary(false);
           }}
+          onEdit={(p) => {
+            setEditingPuzzle(p);
+            setShowLibrary(false);
+          }}
           onDelete={(id) => {
             setPuzzleDb(prev => prev.filter(p => p.id !== id));
             if (activePuzzle.id === id && puzzleDb.length > 1) {
@@ -1222,6 +1264,24 @@ export default function App() {
             }
           }}
           onClose={() => setShowLibrary(false)}
+        />
+      )}
+
+      {editingPuzzle && (
+        <PuzzleEditorModal
+          puzzle={editingPuzzle}
+          onSave={(updatedPuzzle) => {
+            setPuzzleDb(prev => prev.map(p => p.id === updatedPuzzle.id ? updatedPuzzle : p));
+            if (activePuzzle.id === updatedPuzzle.id) {
+              setActivePuzzle(updatedPuzzle);
+            }
+            setEditingPuzzle(null);
+            setShowLibrary(true);
+          }}
+          onClose={() => {
+            setEditingPuzzle(null);
+            setShowLibrary(true);
+          }}
         />
       )}
     </div>
