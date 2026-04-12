@@ -434,7 +434,12 @@ export default function App() {
     if (hintsUsed === 0) updateQuests('no_hints');
     if (activePuzzle.clues.length === 4) updateQuests('win_easy');
     if (activePuzzle.clues.length === 6) updateQuests('win_medium');
-    if (activePuzzle.clues.length === 9) updateQuests('win_hard');
+    if (activePuzzle.clues.length === 9) {
+      updateQuests('win_hard');
+      if (timeElapsed < 120) {
+        updateQuests('win_hard_under_2m');
+      }
+    }
     
     // Update stats
     setStats(prev => {

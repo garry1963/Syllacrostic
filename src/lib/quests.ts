@@ -1,4 +1,4 @@
-export type QuestAction = 'play' | 'win' | 'win_easy' | 'win_medium' | 'win_hard' | 'daily_challenge' | 'no_hints' | 'guess_message';
+export type QuestAction = 'play' | 'win' | 'win_easy' | 'win_medium' | 'win_hard' | 'daily_challenge' | 'no_hints' | 'guess_message' | 'win_hard_under_2m';
 
 export interface Quest {
   id: string;
@@ -16,6 +16,7 @@ export const DAILY_QUEST_TEMPLATES: Omit<Quest, 'progress' | 'completed'>[] = [
   { id: 'd3', description: 'Win a puzzle without hints', action: 'no_hints', target: 1, reward: 75 },
   { id: 'd4', description: 'Guess a hidden message', action: 'guess_message', target: 1, reward: 50 },
   { id: 'd5', description: 'Win 2 puzzles', action: 'win', target: 2, reward: 60 },
+  { id: 'd6', description: 'Win 1 Hard puzzle in under 2 minutes', action: 'win_hard_under_2m', target: 1, reward: 150 },
 ];
 
 export const WEEKLY_QUEST_TEMPLATES: Omit<Quest, 'progress' | 'completed'>[] = [
