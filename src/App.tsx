@@ -436,8 +436,8 @@ export default function App() {
     if (activePuzzle.clues.length === 6) updateQuests('win_medium');
     if (activePuzzle.clues.length === 9) {
       updateQuests('win_hard');
-      if (timeElapsed < 120) {
-        updateQuests('win_hard_under_2m');
+      if (timeElapsed < 180) {
+        updateQuests('win_hard_under_3m');
       }
     }
     
@@ -747,7 +747,7 @@ export default function App() {
     
     if (!existingDaily) {
       if (apiState === 'connected') {
-        generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty)
+        generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty)
           .then(puzzle => {
             // Ensure the theme matches exactly
             puzzle.theme = dailyTheme;
@@ -800,7 +800,7 @@ export default function App() {
       if (apiState !== 'connected') {
         throw new Error("API not connected");
       }
-      const puzzle = await generatePuzzle(dailyTheme, "", "Make it a general knowledge puzzle.", settings.difficulty);
+      const puzzle = await generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty);
       puzzle.theme = dailyTheme; // Ensure theme matches
       saveToDb(puzzle);
       setActivePuzzle(puzzle);

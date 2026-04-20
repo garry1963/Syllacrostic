@@ -23,7 +23,7 @@ async function fetchDatamuseContext(theme: string, difficulty: string): Promise<
   try {
     let query = theme && theme.trim() !== '' ? theme : 'trivia';
     if (query.includes('Daily Challenge')) {
-      query = 'general knowledge';
+      query = 'UK and USA trivia';
     } else if (query === 'Random Trivia') {
       const randomTopics = ['science', 'history', 'geography', 'animals', 'space', 'music', 'art'];
       query = randomTopics[Math.floor(Math.random() * randomTopics.length)];
