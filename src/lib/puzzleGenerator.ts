@@ -19,7 +19,7 @@ export async function checkApiConnection(): Promise<'connected' | 'error' | 'mis
   }
 }
 
-async function fetchDatamuseContext(theme: string, difficulty: string): Promise<string> {
+async function fetchDatamuseContext(theme: string, difficulty: string, previousWords: string[] = []): Promise<string> {
   try {
     let query = theme && theme.trim() !== '' ? theme : 'trivia';
     if (query.includes('Daily Challenge')) {
@@ -40,7 +40,23 @@ async function fetchDatamuseContext(theme: string, difficulty: string): Promise<
       /^[a-zA-Z]+$/.test(w.word) // Only alphabetical words
     );
     
-    const selected = validWords.slice(0, 20);
+    // Shuffle the valid words
+    for (let i = validWords.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [validWords[i], validWords[j]] = [validWords[j], validWords[i]];
+    }
+
+    const lowerPrev = previousWords.filter(Boolean).map(w => w.toLowerCase());
+    const filteredWords = validWords.filter((w: any) => !lowerPrev.includes(w.word.toLowerCase()));
+    
+    // Fallback to validWords if filtered is too small, but prioritize filtered
+    let selected = filteredWords.slice(0, 30);
+    if (selected.length < 20) {
+        const needed = 20 - selected.length;
+        const fallbackWords = validWords.filter((w: any) => lowerPrev.includes(w.word.toLowerCase())).slice(0, needed);
+        selected = [...selected, ...fallbackWords];
+    }
+
     if (selected.length === 0) return "";
     
     let context = "\nDATAMUSE API WORD SUGGESTIONS (You are highly encouraged to use these words and definitions for the puzzle):\n";
@@ -59,7 +75,8 @@ export async function generatePuzzle(
   theme: string, 
   hiddenMessage: string, 
   instructions: string, 
-  difficulty: string
+  difficulty: string,
+  previousWords: string[] = []
 ): Promise<PuzzleDef> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
@@ -68,14 +85,17 @@ export async function generatePuzzle(
   else if (difficulty === 'Hard') difficultyPrompt = "Use complex words. Exactly 9 clues total. Number of syllables per clue random. Include challenging vocabulary.";
   else difficultyPrompt = "Use standard words. Exactly 6 clues total. Number of syllables per clue random.";
 
-  const datamuseContext = await fetchDatamuseContext(theme, difficulty);
+  const datamuseContext = await fetchDatamuseContext(theme, difficulty, previousWords);
+  const avoidPrompt = previousWords && previousWords.length > 0
+    ? `\nCRITICAL RULE G: DO NOT use any of these previously used words as answers: ${previousWords.join(', ')}.`
+    : '';
 
   const prompt = `Create a Syllacrostic puzzle.
   Theme: ${theme}
   ${hiddenMessage ? `Hidden Message: ${hiddenMessage.toUpperCase()}` : `Hidden Message: Choose a random 1-2 word phrase (5-8 letters total).`}
   Difficulty: ${difficulty} - ${difficultyPrompt}
   ${instructions ? `Additional Instructions:\n${instructions}` : ''}
-  ${datamuseContext}
+  ${datamuseContext}${avoidPrompt}
 
   CRITICAL RULES FOR CLUES AND ANSWERS:
   1. For each clue, you MUST provide the 'text' (the hint) and the 'answer' (the full word).

@@ -607,7 +607,12 @@ export default function App() {
     });
   }, [setPuzzleDb]);
 
-  const generateFromPool = useCallback((themePrefix: string, difficulty?: string): PuzzleDef => {
+  const getRecentWords = useCallback(() => {
+    const recentPuzzles = puzzleDb.slice(0, 20);
+    return [...new Set(recentPuzzles.flatMap(p => p.clues.map(c => c.answer)))];
+  }, [puzzleDb]);
+
+  const generateFromPool = useCallback((themePrefix: string, difficulty?: string, previousWords: string[] = []): PuzzleDef => {
     const targetDifficulty = difficulty || settings.difficulty;
     
     let targetClues = 6;
@@ -648,6 +653,16 @@ export default function App() {
         let tempSelected: {clue: string, syllables: string}[] = [];
         let charIndex = 0;
         let availablePool: {clue: string, syllables: string}[] = shuffle(wordPool.filter(p => p.clue !== hiddenItem.clue));
+        
+        // Push items in previousWords to the back
+        const lowerPrev = previousWords.filter(Boolean).map(w => w.toLowerCase());
+        availablePool.sort((a, b) => {
+            const aUsed = lowerPrev.includes(a.syllables.replace(/[^a-zA-Z]/g, '').toLowerCase());
+            const bUsed = lowerPrev.includes(b.syllables.replace(/[^a-zA-Z]/g, '').toLowerCase());
+            if (aUsed && !bUsed) return 1;
+            if (!aUsed && bUsed) return -1;
+            return 0;
+        });
         
         while (tempSelected.length < targetClues && charIndex < messageChars.length && availablePool.length > 0) {
           let bestWordIdx = -1;
@@ -747,7 +762,8 @@ export default function App() {
     
     if (!existingDaily) {
       if (apiState === 'connected') {
-        generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty)
+        const recent = getRecentWords();
+        generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty, recent)
           .then(puzzle => {
             // Ensure the theme matches exactly
             puzzle.theme = dailyTheme;
@@ -756,27 +772,27 @@ export default function App() {
           .catch(err => {
             console.error("Background daily generation failed:", err);
             if (wordPool.length >= 9) {
-              saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty));
+              saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty, recent));
             }
           });
       } else if (apiState === 'error' || apiState === 'missing_key') {
         if (wordPool.length >= 9) {
-          saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty));
+          saveToDb(generateFromPool(`Daily Challenge: ${today}`, settings.difficulty, getRecentWords()));
         }
       }
     }
-  }, [apiState, puzzleDb, settings.difficulty, saveToDb, wordPool, generateFromPool]);
+  }, [apiState, puzzleDb, settings.difficulty, saveToDb, wordPool, generateFromPool, getRecentWords]);
 
   // Preload Random Puzzle
   useEffect(() => {
     if (apiState !== 'connected' || preloadedRandom || isPreloadingRandom) return;
     
     setIsPreloadingRandom(true);
-    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty)
+    generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty, getRecentWords())
       .then(puzzle => setPreloadedRandom(puzzle))
       .catch(err => console.error("Background random generation failed:", err))
       .finally(() => setIsPreloadingRandom(false));
-  }, [apiState, preloadedRandom, isPreloadingRandom, randomDifficulty]);
+  }, [apiState, preloadedRandom, isPreloadingRandom, randomDifficulty, getRecentWords]);
 
   // Clear preloaded random if difficulty changes
   useEffect(() => {
@@ -800,7 +816,8 @@ export default function App() {
       if (apiState !== 'connected') {
         throw new Error("API not connected");
       }
-      const puzzle = await generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty);
+      const recent = getRecentWords();
+      const puzzle = await generatePuzzle(dailyTheme, "", "Make it about UK and USA trivia.", settings.difficulty, recent);
       puzzle.theme = dailyTheme; // Ensure theme matches
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
@@ -809,7 +826,7 @@ export default function App() {
     } catch (err) {
       console.error("Failed to load daily challenge", err);
       if (wordPool.length >= 9) {
-        const puzzle = generateFromPool(`Daily Challenge: ${today}`, settings.difficulty);
+        const puzzle = generateFromPool(`Daily Challenge: ${today}`, settings.difficulty, getRecentWords());
         saveToDb(puzzle);
         setActivePuzzle(puzzle);
         setIsDaily(true);
@@ -834,7 +851,7 @@ export default function App() {
 
     setIsGeneratingRandom(true);
     try {
-      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty);
+      const puzzle = await generatePuzzle("Random Trivia", "", "Make it a mix of different fun topics.", randomDifficulty, getRecentWords());
       saveToDb(puzzle);
       setActivePuzzle(puzzle);
       setIsDaily(false);
@@ -864,7 +881,7 @@ export default function App() {
       return;
     }
     
-    const puzzle = generateFromPool("Offline Pool", poolDifficulty);
+    const puzzle = generateFromPool("Offline Pool", poolDifficulty, getRecentWords());
     saveToDb(puzzle);
     setActivePuzzle(puzzle);
     setIsDaily(false);
